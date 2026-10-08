@@ -1,0 +1,467 @@
+/* Claude Tutor. Design tokens follow the active Obsidian theme; Clawd's orange is the one accent. */
+
+.ct-view {
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+.ct-root {
+  --bg: var(--background-primary);
+  --surface: var(--background-secondary);
+  --surface-2: var(--background-modifier-hover);
+  --surface-3: var(--background-modifier-border);
+  --border: var(--background-modifier-border);
+  --border-strong: var(--background-modifier-border-hover);
+  --text: var(--text-normal);
+  --text-2: var(--text-muted);
+  --text-3: var(--text-faint);
+  --accent: #c96442;
+  --accent-hover: #b4583a;
+  --accent-text: #ffffff;
+  --accent-soft: rgba(201, 100, 66, 0.12);
+  --good: var(--color-green);
+  --good-soft: rgba(var(--color-green-rgb), 0.12);
+  --warn: var(--color-yellow);
+  --warn-soft: rgba(var(--color-yellow-rgb), 0.14);
+  --bad: var(--color-red);
+  --bad-soft: rgba(var(--color-red-rgb), 0.11);
+  --violet: var(--color-purple);
+  --violet-soft: rgba(var(--color-purple-rgb), 0.12);
+  --shadow: var(--shadow-s);
+  --shadow-lg: var(--shadow-l);
+  --clawd-fx: var(--text-normal);
+  --font-ui: var(--font-interface);
+  --font-prose: var(--font-text);
+  --font-mono: var(--font-monospace);
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+
+  font-family: var(--font-ui);
+  font-size: var(--font-ui-medium);
+  line-height: 1.55;
+  color: var(--text);
+  background: var(--bg);
+}
+
+.theme-dark .ct-root {
+  --accent: #d97757;
+  --accent-hover: #e48a6c;
+  --accent-text: #1c1b1a;
+  --accent-soft: rgba(217, 119, 87, 0.16);
+}
+
+.ct-root *,
+.ct-root *::before,
+.ct-root *::after {
+  box-sizing: border-box;
+}
+
+.ct-root h1,
+.ct-root h2,
+.ct-root h3,
+.ct-root h4 {
+  margin: 0;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+}
+.ct-root h1 {
+  font-size: 1.6em;
+}
+.ct-root h2 {
+  font-size: 1.2em;
+}
+.ct-root h3 {
+  font-size: 1em;
+}
+.ct-root p {
+  margin: 0;
+}
+
+/* Obsidian styles every <button>; inside the tutor, components style their own. */
+.ct-root button {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.ct-root button:disabled {
+  cursor: default;
+}
+.ct-root :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Buttons */
+.ct-root .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45em;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
+  font-weight: 550;
+  font-size: 0.93em;
+  white-space: nowrap;
+  transition:
+    background 0.12s,
+    border-color 0.12s,
+    transform 0.06s;
+}
+.ct-root .btn:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.ct-root .btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.ct-root .btn:disabled {
+  opacity: 0.45;
+}
+.ct-root .btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.ct-root .btn.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+.ct-root .btn.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-2);
+}
+.ct-root .btn.ghost:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.ct-root .btn.lg {
+  height: 42px;
+  padding: 0 20px;
+  font-size: 1em;
+  border-radius: 10px;
+}
+.ct-root .btn.sm {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 0.85em;
+}
+.ct-root .btn.icon {
+  width: 32px;
+  padding: 0;
+}
+
+.ct-root kbd {
+  font-family: var(--font-mono);
+  font-size: 0.72em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid currentColor;
+  background: none;
+  box-shadow: none;
+  opacity: 0.6;
+}
+
+.ct-root .card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
+}
+.ct-root .muted {
+  color: var(--text-2);
+}
+.ct-root .faint {
+  color: var(--text-3);
+}
+.ct-root .small {
+  font-size: 0.85em;
+}
+
+.ct-root input[type="text"],
+.ct-root input[type="search"],
+.ct-root textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  padding: 8px 12px;
+  outline: none;
+}
+.ct-root input:focus,
+.ct-root textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.ct-root textarea {
+  resize: none;
+  line-height: 1.55;
+}
+
+/* The whole composer is one input surface; embedded fields never draw a second focus ring. */
+.ct-root .ct-composer {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  padding: 8px;
+  box-shadow: none;
+  transition: border-color 0.15s;
+}
+.ct-root .ct-composer:focus-within {
+  border-color: var(--text-3);
+  box-shadow: none;
+}
+.ct-root .ct-composer :is(textarea, input[type="text"]),
+.ct-root .ct-composer :is(textarea, input[type="text"]):focus,
+.ct-root .ct-composer :is(textarea, input[type="text"]):focus-visible {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+  padding: 8px;
+  font: inherit;
+}
+.ct-root .ct-composer textarea {
+  min-height: 72px;
+}
+.ct-root .ct-composer input[type="text"] {
+  height: auto;
+  min-height: 64px;
+}
+.ct-root .ct-composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0 0;
+}
+.ct-root .ct-composer-actions .ct-send,
+.ct-root .ct-composer-footer > .ct-send {
+  margin-left: auto;
+}
+.ct-root .ct-composer-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 8px 4px 0;
+  color: var(--text-2);
+}
+.ct-root .ct-composer-options,
+.ct-root .ct-composer-settings {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.ct-root .ct-composer-settings {
+  margin-left: auto;
+}
+.ct-root .ct-composer-hint {
+  color: var(--text-3);
+  font-size: 0.78em;
+}
+.ct-root .ct-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--text);
+  color: var(--bg);
+}
+.ct-root .ct-send:hover:not(:disabled) {
+  opacity: 0.85;
+}
+.ct-root .ct-send:disabled {
+  background: transparent;
+  color: var(--text-3);
+  opacity: 0.55;
+}
+.ct-root .ct-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Markdown (and MathJax) rendered by Obsidian inside the tutor */
+.ct-root .ct-md {
+  font-family: var(--font-prose);
+  font-size: 1em;
+  line-height: 1.65;
+  user-select: text;
+}
+.ct-root .ct-md > :first-child {
+  margin-top: 0;
+}
+.ct-root .ct-md > :last-child {
+  margin-bottom: 0;
+}
+.ct-root .ct-md p,
+.ct-root .ct-md ul,
+.ct-root .ct-md ol,
+.ct-root .ct-md pre,
+.ct-root .ct-md table,
+.ct-root .ct-md blockquote {
+  margin: 0 0 0.7em;
+}
+.ct-root .ct-md ul,
+.ct-root .ct-md ol {
+  padding-left: 1.4em;
+}
+.ct-root .ct-md.ct-inline {
+  font-family: inherit;
+  line-height: inherit;
+  display: inline;
+}
+/* Display equations scroll instead of overflowing narrow panes. */
+.ct-root .ct-md .math-block,
+.ct-root .ct-md mjx-container[display="true"] {
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+  margin: 0.6em 0;
+}
+.ct-root .ct-md mjx-container {
+  font-size: 105%;
+}
+
+/* Shared pieces used by feedback cards */
+.ct-root .ct-callout {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  font-size: 0.95em;
+}
+.ct-root .ct-callout > .icon {
+  margin-top: 3px;
+}
+.ct-root .ct-callout.bulb {
+  background: var(--warn-soft);
+}
+.ct-root .ct-callout.bulb > .icon {
+  color: var(--warn);
+}
+.ct-root .ct-callout.warn {
+  background: var(--bad-soft);
+}
+.ct-root .ct-callout.warn > .icon {
+  color: var(--bad);
+}
+.ct-root .ct-callout.info {
+  background: var(--violet-soft);
+}
+.ct-root .ct-callout.info > .icon {
+  color: var(--violet);
+}
+.ct-root .pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.68em;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 99px;
+  white-space: nowrap;
+}
+.ct-root .pill.wrong {
+  color: var(--bad);
+  background: var(--bad-soft);
+}
+.ct-root .pill.missing {
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+.ct-root .pill.jargon {
+  color: var(--violet);
+  background: var(--violet-soft);
+}
+.ct-root .pill.vague {
+  color: var(--text-2);
+  background: var(--surface-3);
+}
+.ct-root details.fold {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 0 14px;
+}
+.ct-root details.fold > summary {
+  cursor: pointer;
+  padding: 10px 0;
+  font-weight: 600;
+  font-size: 0.92em;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ct-root details.fold > summary::-webkit-details-marker {
+  display: none;
+}
+.ct-root details.fold > summary::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 2px solid var(--text-3);
+  border-bottom: 2px solid var(--text-3);
+  transform: rotate(-45deg);
+  transition: transform 0.15s;
+}
+.ct-root details.fold[open] > summary::before {
+  transform: rotate(45deg);
+}
+.ct-root details.fold[open] {
+  padding-bottom: 12px;
+}
+.ct-root .sec-title {
+  font-size: 0.72em;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-3);
+  font-weight: 700;
+  margin: 0 0 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-root *,
+  .ct-root *::before,
+  .ct-root *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Note picker suggestions */
+.ct-suggest-tag {
+  font-size: 0.7em;
+  font-weight: 700;
+  color: var(--color-red);
+  margin-left: 6px;
+}
+.ct-suggest-note {
+  font-size: 0.8em;
+  color: var(--text-faint);
+  margin-left: 6px;
+}
