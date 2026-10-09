@@ -87,7 +87,7 @@ export function ask<T>(o: ClaudeOptions, system: string, prompt: string, schema:
       if (settled) return;
       cleanup();
       child.kill();
-      reject(error);
+      reject(error instanceof Error ? error : new Error(String(error)));
     };
     const abort = () => fail(new Error("Claude request cancelled."));
     const timer = setTimeout(() => fail(new Error("Claude took too long to answer (timed out).")), o.timeoutMs ?? 300_000);
@@ -167,7 +167,7 @@ export function parseStreamResult<T>(stdout: string, stderr: string, code: numbe
 export function parseResult<T>(stdout: string, stderr: string, code: number | null): { data: T; models: string[] } {
   let v: Record<string, unknown>;
   try {
-    v = JSON.parse(stdout.trim());
+    v = JSON.parse(stdout.trim()) as Record<string, unknown>;
   } catch {
     const msg = stderr.trim() || stdout.trim() || "no output";
     throw new Error(`claude exited with code ${code}: ${msg}`);

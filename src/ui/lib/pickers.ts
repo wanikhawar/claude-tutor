@@ -7,7 +7,7 @@ export class NotePicker extends FuzzySuggestModal<TFile> {
   constructor(
     app: App,
     private inLibrary: (path: string) => boolean,
-    private onPick: (file: TFile) => void,
+    private onPick: (file: TFile) => void | Promise<void>,
   ) {
     super(app);
     this.setPlaceholder("Add a note or PDF to Claude Tutor…");
@@ -35,14 +35,14 @@ export class NotePicker extends FuzzySuggestModal<TFile> {
   }
 
   onChooseItem(f: TFile) {
-    this.onPick(f);
+    void this.onPick(f);
   }
 }
 
 export class FolderPicker extends FuzzySuggestModal<TFolder> {
   constructor(
     app: App,
-    private onPick: (folder: TFolder) => void,
+    private onPick: (folder: TFolder) => void | Promise<void>,
   ) {
     super(app);
     this.setPlaceholder("Add a folder to Claude Tutor…");
@@ -59,7 +59,7 @@ export class FolderPicker extends FuzzySuggestModal<TFolder> {
   }
 
   onChooseItem(f: TFolder) {
-    this.onPick(f);
+    void this.onPick(f);
   }
 }
 
@@ -67,7 +67,7 @@ export class ImagePicker extends FuzzySuggestModal<TFile> {
   constructor(
     app: App,
     private exts: string[],
-    private onPick: (file: TFile) => void,
+    private onPick: (file: TFile) => void | Promise<void>,
   ) {
     super(app);
     this.setPlaceholder("Attach an image from your vault…");
@@ -85,7 +85,7 @@ export class ImagePicker extends FuzzySuggestModal<TFile> {
   }
 
   onChooseItem(f: TFile) {
-    this.onPick(f);
+    void this.onPick(f);
   }
 }
 

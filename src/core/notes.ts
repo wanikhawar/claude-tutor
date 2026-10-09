@@ -2,7 +2,7 @@
 
 /** Split `---\n...\n---` YAML frontmatter from the content. */
 export function splitFrontmatter(raw: string): [string, string] {
-  const s = raw.replace(/^﻿/, "");
+  const s = raw.replace(/^\uFEFF/, "");
   const m = /^---\r?\n([\s\S]*?)\r?\n---[^\n]*(?:\r?\n|$)/.exec(s);
   return m ? [m[1], s.slice(m[0].length)] : ["", s];
 }

@@ -15,8 +15,10 @@ import { store } from "./ui/lib/store.svelte";
 const PENDING_SAVES = Symbol.for("claude-tutor.pending-progress-saves");
 type PendingSaves = Map<string, Promise<void>>;
 function pendingSaves(): PendingSaves {
-  const g = globalThis as { [PENDING_SAVES]?: PendingSaves };
-  return (g[PENDING_SAVES] ??= new Map());
+  const g = globalThis as unknown as Record<symbol, PendingSaves | undefined>;
+  let saves = g[PENDING_SAVES];
+  if (!saves) g[PENDING_SAVES] = saves = new Map();
+  return saves;
 }
 
 // Clawd silhouette for the ribbon: body with glasses knocked out (monochrome, follows the theme).
@@ -83,7 +85,14 @@ export default class ClaudeTutorPlugin extends Plugin {
     });
   }
 
-  async onunload() {
+  /** Settles once the final progress save has landed (onunload itself must return void). */
+  unloading: Promise<void> = Promise.resolve();
+
+  onunload() {
+    this.unloading = this.finishUnload();
+  }
+
+  private async finishUnload() {
     this.unloaded = true;
     this.scheduleSave?.cancel();
     for (const timer of this.pendingReloads.values()) clearTimeout(timer);
@@ -107,7 +116,7 @@ export default class ClaudeTutorPlugin extends Plugin {
   // Persistence
 
   async loadSettings() {
-    const saved = (await this.loadData()) ?? {};
+    const saved = ((await this.loadData()) ?? {}) as Partial<TutorSettings>;
     this.settings = {
       ...DEFAULT_SETTINGS,
       ...saved,
@@ -123,10 +132,10 @@ export default class ClaudeTutorPlugin extends Plugin {
   private async loadProgress(): Promise<ProgressData> {
     try {
       if (await this.app.vault.adapter.exists(this.progressFile)) {
-        return { ...emptyProgress(), ...JSON.parse(await this.app.vault.adapter.read(this.progressFile)) };
+        return { ...emptyProgress(), ...(JSON.parse(await this.app.vault.adapter.read(this.progressFile)) as Partial<ProgressData>) };
       }
     } catch (e) {
-      new Notice(`Claude Tutor: couldn't read progress.json (${e}). Starting fresh; the old file was kept.`);
+      new Notice(`Claude Tutor: couldn't read progress.json (${e instanceof Error ? e.message : String(e)}). Starting fresh; the old file was kept.`);
       await this.app.vault.adapter.copy(this.progressFile, `${this.progressFile}.bak`).catch(() => {});
     }
     return emptyProgress();
@@ -264,13 +273,13 @@ export default class ClaudeTutorPlugin extends Plugin {
       clearTimeout(this.pendingReloads.get(path));
       this.pendingReloads.set(
         path,
-        setTimeout(async () => {
+        setTimeout(() => void (async () => {
           this.pendingReloads.delete(path);
           if (this.unloaded) return;
           await lib.loadFile(file);
           if (this.unloaded) return;
           this.backend.emit();
-        }, 2000),
+        })(), 2000),
       );
     };
     this.registerEvent(

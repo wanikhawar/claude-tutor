@@ -116,7 +116,8 @@ describe("progress persistence", () => {
     await Promise.resolve();
     f.events.get("modify")!(f.files[0]);
     f.plugin.backend.progress.touch();
-    await f.plugin.onunload();
+    f.plugin.onunload();
+    await f.plugin.unloading;
     const reads = f.vault.cachedRead.mock.calls.length;
     expect(vi.getTimerCount()).toBe(0);
     await vi.advanceTimersByTimeAsync(25_000);
@@ -137,7 +138,8 @@ describe("progress persistence", () => {
     prior.resolve();
     await loading;
     expect(f.plugin.backend.progress.data.nextId).toBe(7);
-    await f.plugin.onunload();
+    f.plugin.onunload();
+    await f.plugin.unloading;
   });
 
   it("starts nothing if disabled while waiting for a prior unload save", async () => {
@@ -149,7 +151,8 @@ describe("progress persistence", () => {
     const ribbon = vi.spyOn(f.plugin, "addRibbonIcon");
     const loading = f.plugin.onload();
     await microtasks();
-    const unloading = f.plugin.onunload();
+    f.plugin.onunload();
+    const unloading = f.plugin.unloading;
     prior.resolve();
     await Promise.all([loading, unloading]);
     expect(ribbon).not.toHaveBeenCalled();
@@ -164,7 +167,7 @@ describe("progress persistence", () => {
     (f.plugin as unknown as { backend?: unknown }).backend = undefined;
     const loading = f.plugin.onload();
     await microtasks();
-    void f.plugin.onunload();
+    f.plugin.onunload();
     const chained = pendingSaves().get(PROGRESS);
     let settled = false;
     void chained?.then(() => (settled = true));
@@ -210,13 +213,15 @@ describe("progress persistence", () => {
     // slow.md, c.md and d.md then join the queue, which would make 5 reads: ask instead.
     expect(extract).toHaveBeenCalledTimes(2);
     expect(store.confirmCount).toBe(3);
-    await f.plugin.onunload();
+    f.plugin.onunload();
+    await f.plugin.unloading;
   });
 
   it("does not register vault work if layout becomes ready after unload", async () => {
     const f = pluginFixture();
     await f.plugin.onload();
-    await f.plugin.onunload();
+    f.plugin.onunload();
+    await f.plugin.unloading;
     await f.layout();
     expect(f.vault.cachedRead).not.toHaveBeenCalled();
     expect(f.events.size).toBe(0);
@@ -234,7 +239,8 @@ describe("progress persistence", () => {
     const bulk = store.indexAll();
     await Promise.resolve();
     expect(extract).toHaveBeenCalledTimes(1);
-    await f.plugin.onunload();
+    f.plugin.onunload();
+    await f.plugin.unloading;
     expect(extract.mock.calls[0][0].signal?.aborted).toBe(true);
     pending.resolve({ concepts: [extracted()] });
     await bulk;

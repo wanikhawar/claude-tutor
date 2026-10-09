@@ -20,8 +20,8 @@ let nextId = 1;
 function readAsDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
-    r.onload = () => resolve(String(r.result));
-    r.onerror = () => reject(r.error);
+    r.onload = () => (typeof r.result === "string" ? resolve(r.result) : reject(new Error("Couldn't read the image.")));
+    r.onerror = () => reject(r.error ?? new Error("Couldn't read the image."));
     r.readAsDataURL(blob);
   });
 }

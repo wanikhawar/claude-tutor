@@ -23,7 +23,7 @@ export function pdftotextPages(fullPath: string): Promise<string[]> {
       ["-enc", "UTF-8", "-q", fullPath, "-"],
       { maxBuffer: 256 * 1024 * 1024, env: { ...process.env, PATH: `/usr/bin:/usr/local/bin:/opt/homebrew/bin:${process.env.PATH ?? ""}` } },
       (err, stdout) => {
-        if (err) return reject(err);
+        if (err) return reject(new Error(`pdftotext failed: ${err.message}`));
         const pages = stdout.split("\f").map(cleanPage);
         if (pages.length && !pages[pages.length - 1]) pages.pop();
         resolve(pages);

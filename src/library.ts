@@ -144,7 +144,7 @@ export class Library {
     const id = sha256(`${file.path}|${file.stat.size}|${file.stat.mtime}`).slice(0, 32);
     const cacheFile = normalizePath(`${this.cacheDir}/${id}.json`);
     try {
-      if (await adapter.exists(cacheFile)) return JSON.parse(await adapter.read(cacheFile));
+      if (await adapter.exists(cacheFile)) return JSON.parse(await adapter.read(cacheFile)) as string[];
     } catch {
       // Unreadable cache entry: extract again.
     }
