@@ -19,6 +19,9 @@
     "typescript": "6.0.3",
     "vitest": "5.0.3"
   },
+  "overrides": {
+    "moment": "2.31.0"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
