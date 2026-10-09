@@ -19,5 +19,10 @@
     "svelte-check": "4.7.6",
     "typescript": "6.0.3",
     "vitest": "5.0.3"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wanikhawar/claude-tutor.git"
   }
 }

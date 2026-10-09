@@ -2,8 +2,9 @@
   "id": "claude-tutor",
   "name": "Claude Tutor",
   "version": "0.1.0",
-  "minAppVersion": "1.5.0",
+  "minAppVersion": "1.8.7",
   "description": "Learn your notes and PDFs with the Feynman technique. Clawd, a pixel tutor in glasses, finds the gaps in your explanations, re-teaches them and quizzes you. Uses your Claude Code login.",
   "author": "Khawar Wani",
-  "isDesktopOnly": true
+  "isDesktopOnly": true,
+  "authorUrl": "https://github.com/wanikhawar"
 }

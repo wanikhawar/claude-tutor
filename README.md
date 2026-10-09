@@ -25,11 +25,18 @@ What it does:
 
 ## Requirements
 
-- Obsidian desktop 1.5+ (the plugin is desktop-only, because it runs the `claude` CLI).
+- Obsidian desktop 1.8.7+ (the plugin is desktop-only, because it runs the `claude` CLI).
 - [Claude Code](https://claude.com/claude-code) installed and logged in. Run `claude` once in a terminal to sign in. The plugin finds it in the usual places (`~/.local/bin`, Homebrew, `/usr/local/bin`); if it doesn't, set the path in settings.
 - Optional: `poppler` (`pdftotext`) for the best PDF text.
 
-## Install (manual)
+## Install
+
+Once it's listed in Obsidian's community plugins: **Settings → Community plugins → Browse**, search for **Claude Tutor**, install and enable it.
+
+Until then, download `main.js`, `manifest.json` and `styles.css` from the [latest release](https://github.com/wanikhawar/claude-tutor/releases/latest) into `<vault>/.obsidian/plugins/claude-tutor/`, then enable it under **Settings → Community plugins**.
+
+### From source
+
 
 ```sh
 npm install
@@ -62,11 +69,22 @@ All data stays in the plugin folder (`.obsidian/plugins/claude-tutor/`):
 - `progress.json`: concepts, scheduling, attempts and misconceptions. It's written atomically, and a backup is kept if the file can't be read.
 - `pdf-cache/`: extracted PDF text.
 
+In your vault, the plugin only writes notes you ask for: **Teach → Save as note** creates a note in `Claude Tutor/Lessons/` (configurable).
+
 Nothing is sent anywhere except to Claude, through your own `claude` CLI: one request per note read, and one per answer graded.
+
+## Disclosures
+
+- **Requires an Anthropic account.** Claude Tutor talks to Claude through [Claude Code](https://claude.com/claude-code), which needs a Claude subscription (Pro/Max) or API billing. Requests count against your plan's usage.
+- **Runs an external program.** The plugin starts your locally installed `claude` CLI (and `pdftotext`, if installed) as child processes. That's why it's desktop-only.
+- **Network use.** Note text, your answers and any images you attach are sent to Anthropic by the `claude` CLI, to evaluate explanations, write quizzes and reply. The plugin itself makes no other network requests and has no telemetry.
+- **Not affiliated with Anthropic.** This is an independent, community plugin.
 
 ## Development
 
 ```sh
+npm install
+npm run build                                   # type-checks, then writes main.js
 npm test                                        # core unit tests (notes, PDF reflow/split, SRS, progress)
 CLAUDE_LIVE=1 npx vitest run tests/live.test.ts # live test against Claude (Haiku): checks LaTeX output
 npm run dev                                     # rebuild main.js on change
