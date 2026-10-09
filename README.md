@@ -25,7 +25,7 @@ What it does:
 
 ## Requirements
 
-- Obsidian desktop 1.8.7+ (the plugin is desktop-only, because it runs the `claude` CLI).
+- Obsidian desktop 1.13+ (the plugin is desktop-only, because it runs the `claude` CLI). On Obsidian 1.8.7–1.12, Obsidian installs version 0.1.3 automatically.
 - [Claude Code](https://claude.com/claude-code) installed and logged in. Run `claude` once in a terminal to sign in. The plugin finds it in the usual places (`~/.local/bin`, Homebrew, `/usr/local/bin`); if it doesn't, set the path in settings.
 - Optional: `poppler` (`pdftotext`) for the best PDF text.
 
@@ -79,6 +79,7 @@ Nothing is sent anywhere except to Claude, through your own `claude` CLI: one re
 - **Runs an external program.** The plugin starts your locally installed `claude` CLI (and `pdftotext`, if installed) as child processes, passing them your environment with common install folders added to `PATH` so they can be found when Obsidian is launched from the dock. That's why it's desktop-only.
 - **Filesystem access outside the vault API.** It checks the usual install locations for the `claude` binary, and replaces `progress.json` with an atomic rename so a crash can't leave it half-written. It doesn't read or write anything else outside your vault.
 - **Network use.** Note text, your answers and any images you attach are sent to Anthropic by the `claude` CLI, to evaluate explanations, write quizzes and reply. The plugin itself makes no other network requests and has no telemetry.
+- **Lists your vault's files.** To find notes in your study folders, and to offer notes and folders in the **Add note or PDF** / **Add folder** pickers, the plugin lists the files in your vault. It only reads the contents of notes in your study folders (or notes you add one by one).
 - **Verifiable releases.** Release files are built by GitHub Actions from this repository and carry [build provenance attestations](https://github.com/wanikhawar/claude-tutor/attestations); check one with `gh attestation verify main.js -R wanikhawar/claude-tutor`.
 - **Not affiliated with Anthropic.** This is an independent, community plugin.
 

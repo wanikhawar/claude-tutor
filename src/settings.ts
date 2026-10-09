@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { App, PluginSettingTab, Setting, TFolder, requireApiVersion, type SettingDefinitionItem } from "obsidian";
+import { App, PluginSettingTab, Setting, TFolder, type SettingDefinitionItem } from "obsidian";
 import type ClaudeTutorPlugin from "./main";
 import { findClaude, modelLabel } from "./core/claude";
 
@@ -93,7 +93,7 @@ export class TutorSettingTab extends PluginSettingTab {
     super(app, plugin);
   }
 
-  /** The settings, defined once and rendered by either Obsidian API below. */
+  /** The settings, grouped into sections. */
   private sections(): Section[] {
     const s = this.plugin.settings;
     // Folder lists as they were when the tab opened, so half-typed names don't drop notes.
@@ -104,16 +104,15 @@ export class TutorSettingTab extends PluginSettingTab {
       if (rescan) await this.plugin.backend.rescan();
     };
     const slider = (min: number, max: number, get: () => number, set: (v: number) => void) => (setting: Setting) =>
-      setting.addSlider((sl) => {
-        sl.setLimits(min, max, 1)
+      setting.addSlider((sl) =>
+        sl
+          .setLimits(min, max, 1)
           .setValue(get())
           .onChange(async (v) => {
             set(v);
             await save();
-          });
-        // 1.13+ always shows the value next to the slider; older versions need the tooltip.
-        if (!requireApiVersion("1.13.0")) sl.setDynamicTooltip();
-      });
+          }),
+      );
 
     return [
       {
@@ -166,7 +165,8 @@ export class TutorSettingTab extends PluginSettingTab {
                 b.setButtonText("Clear").onClick(async () => {
                   s.studyFiles = [];
                   await save(true);
-                  this.display();
+                  // Re-checks `visible`, which hides this row now the list is empty.
+                  this.refreshDomState();
                 }),
               ),
           },
@@ -287,7 +287,7 @@ export class TutorSettingTab extends PluginSettingTab {
     ];
   }
 
-  /** Obsidian 1.13+: declarative settings, so they show up in settings search. */
+  /** Declarative settings (Obsidian 1.13+), so they show up in settings search. */
   getSettingDefinitions(): SettingDefinitionItem[] {
     return this.sections().map((sec) => ({
       type: "group" as const,
@@ -303,22 +303,6 @@ export class TutorSettingTab extends PluginSettingTab {
         },
       })),
     }));
-  }
-
-  /** Older Obsidian (before 1.13) renders the same rows imperatively. */
-  display() {
-    if (requireApiVersion("1.13.0")) return super.display();
-    const el = this.containerEl;
-    el.empty();
-    for (const sec of this.sections()) {
-      new Setting(el).setName(sec.heading).setHeading();
-      for (const row of sec.rows) {
-        if (row.visible && !row.visible()) continue;
-        const setting = new Setting(el).setName(row.name);
-        if (row.desc) setting.setDesc(row.desc);
-        row.build(setting);
-      }
-    }
   }
 }
 
