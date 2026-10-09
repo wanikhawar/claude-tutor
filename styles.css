@@ -1,8 +1,9 @@
 /* Claude Tutor. Design tokens follow the active Obsidian theme; Clawd's orange is the one accent. */
 
-.ct-view {
-  padding: 0 !important;
-  overflow: hidden !important;
+/* Beats Obsidian's view padding by specificity, not !important. */
+.workspace-leaf-content[data-type="claude-tutor"] > .view-content.ct-view {
+  padding: 0;
+  overflow: hidden;
 }
 
 .ct-root {
@@ -81,10 +82,35 @@
 
 /* Obsidian styles every <button>; inside the tutor, components style their own. */
 .ct-root button {
-  all: unset;
+  appearance: none;
   box-sizing: border-box;
+  display: inline;
+  align-items: normal;
+  justify-content: normal;
+  gap: normal;
+  margin: 0;
+  padding: 0;
+  width: auto;
+  height: auto;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  filter: none;
+  opacity: 1;
+  outline: none;
+  overflow: visible;
+  text-overflow: clip;
+  transition: none;
+  user-select: auto;
   cursor: pointer;
   font: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+  text-align: inherit;
+  text-transform: inherit;
+  white-space: inherit;
   color: inherit;
 }
 .ct-root button:disabled {
@@ -298,7 +324,6 @@
   padding: 0;
   margin: -1px;
   overflow: hidden;
-  clip-path: inset(50%);
   white-space: nowrap;
 }
 
@@ -334,13 +359,13 @@
 }
 /* Display equations scroll instead of overflowing narrow panes. */
 .ct-root .ct-md .math-block,
-.ct-root .ct-md mjx-container[display="true"] {
+.ct-root .ct-md .MathJax[display="true"] {
   overflow-x: auto;
   overflow-y: hidden;
   max-width: 100%;
   margin: 0.6em 0;
 }
-.ct-root .ct-md mjx-container {
+.ct-root .ct-md .MathJax {
   font-size: 105%;
 }
 
@@ -443,13 +468,14 @@
   margin: 0 0 6px;
 }
 
+/* The doubled class outranks components' scoped animation rules without !important. */
 @media (prefers-reduced-motion: reduce) {
-  .ct-root *,
-  .ct-root *::before,
-  .ct-root *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+  body .ct-root.ct-root *,
+  body .ct-root.ct-root *::before,
+  body .ct-root.ct-root *::after {
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+    transition-duration: 0.01ms;
   }
 }
 

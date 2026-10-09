@@ -76,8 +76,10 @@ Nothing is sent anywhere except to Claude, through your own `claude` CLI: one re
 ## Disclosures
 
 - **Requires an Anthropic account.** Claude Tutor talks to Claude through [Claude Code](https://claude.com/claude-code), which needs a Claude subscription (Pro/Max) or API billing. Requests count against your plan's usage.
-- **Runs an external program.** The plugin starts your locally installed `claude` CLI (and `pdftotext`, if installed) as child processes. That's why it's desktop-only.
+- **Runs an external program.** The plugin starts your locally installed `claude` CLI (and `pdftotext`, if installed) as child processes, passing them your environment with common install folders added to `PATH` so they can be found when Obsidian is launched from the dock. That's why it's desktop-only.
+- **Filesystem access outside the vault API.** It checks the usual install locations for the `claude` binary, and replaces `progress.json` with an atomic rename so a crash can't leave it half-written. It doesn't read or write anything else outside your vault.
 - **Network use.** Note text, your answers and any images you attach are sent to Anthropic by the `claude` CLI, to evaluate explanations, write quizzes and reply. The plugin itself makes no other network requests and has no telemetry.
+- **Verifiable releases.** Release files are built by GitHub Actions from this repository and carry [build provenance attestations](https://github.com/wanikhawar/claude-tutor/attestations); check one with `gh attestation verify main.js -R wanikhawar/claude-tutor`.
 - **Not affiliated with Anthropic.** This is an independent, community plugin.
 
 ## Development

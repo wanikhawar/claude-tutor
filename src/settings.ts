@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { App, PluginSettingTab, Setting, TFolder } from "obsidian";
 import type ClaudeTutorPlugin from "./main";
 import { findClaude, modelLabel } from "./core/claude";
@@ -242,7 +243,7 @@ export class TutorSettingTab extends PluginSettingTab {
           .setPlaceholder("~/.local/bin/claude")
           .setValue(s.claudePath)
           .onChange(async (v) => {
-            s.claudePath = v.trim().replace(/^~(?=\/)/, process.env.HOME ?? "~");
+            s.claudePath = v.trim().replace(/^~(?=\/)/, homedir());
             await save();
           }),
       );
