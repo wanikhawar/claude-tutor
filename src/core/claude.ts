@@ -80,7 +80,7 @@ export function ask<T>(o: ClaudeOptions, system: string, prompt: string, schema:
     let settled = false;
     const cleanup = () => {
       settled = true;
-      clearTimeout(timer);
+      window.clearTimeout(timer);
       o.signal?.removeEventListener("abort", abort);
     };
     const fail = (error: unknown) => {
@@ -90,7 +90,7 @@ export function ask<T>(o: ClaudeOptions, system: string, prompt: string, schema:
       reject(error instanceof Error ? error : new Error(String(error)));
     };
     const abort = () => fail(new Error("Claude request cancelled."));
-    const timer = setTimeout(() => fail(new Error("Claude took too long to answer (timed out).")), o.timeoutMs ?? 300_000);
+    const timer = window.setTimeout(() => fail(new Error("Claude took too long to answer (timed out).")), o.timeoutMs ?? 300_000);
     o.signal?.addEventListener("abort", abort, { once: true });
 
     child.stdout.on("data", (d) => (out += d));

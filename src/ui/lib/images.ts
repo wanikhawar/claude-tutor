@@ -37,7 +37,7 @@ export async function prepareImage(blob: Blob, name: string): Promise<Img> {
   const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height));
   let out = blob;
   if (scale < 1 || blob.size > MAX_BYTES || !SUPPORTED.includes(blob.type)) {
-    const canvas = document.createElement("canvas");
+    const canvas = createEl("canvas");
     canvas.width = Math.round(bitmap.width * scale);
     canvas.height = Math.round(bitmap.height * scale);
     const ctx = canvas.getContext("2d")!;

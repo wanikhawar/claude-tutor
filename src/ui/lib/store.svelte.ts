@@ -79,8 +79,8 @@ export class Store {
   private lastActivity = Date.now();
   private approvedBulk = false;
   private declinedBulk = false;
-  private timer: ReturnType<typeof setTimeout> | null = null;
-  private ticker: ReturnType<typeof setInterval> | null = null;
+  private timer: number | null = null;
+  private ticker: number | null = null;
   private unsubscribe: (() => void) | null = null;
   private disposed = true;
   private generation = 0;
@@ -89,7 +89,7 @@ export class Store {
   private failedReads = new Set<string>();
   private studyRequest = 0;
   private nextPlanId = 0;
-  private toastTimer: ReturnType<typeof setTimeout> | null = null;
+  private toastTimer: number | null = null;
 
   init(backend: Backend, settings: () => TutorSettings, saveSettings: () => Promise<void>) {
     this.dispose();
@@ -108,7 +108,7 @@ export class Store {
     this.settings = settings;
     this.saveSettings = saveSettings;
     this.unsubscribe = backend.subscribe(() => this.onLibraryChange());
-    this.ticker = setInterval(() => this.tick(), 1000);
+    this.ticker = window.setInterval(() => this.tick(), 1000);
   }
 
   dispose() {
@@ -118,9 +118,9 @@ export class Store {
     this.reading.abort();
     this.unsubscribe?.();
     this.unsubscribe = null;
-    if (this.timer) clearTimeout(this.timer);
-    if (this.ticker) clearInterval(this.ticker);
-    if (this.toastTimer) clearTimeout(this.toastTimer);
+    if (this.timer) window.clearTimeout(this.timer);
+    if (this.ticker) window.clearInterval(this.ticker);
+    if (this.toastTimer) window.clearTimeout(this.toastTimer);
     this.dialog?.resolve(null);
     this.dialog = null;
     this.toast = null;
@@ -213,10 +213,10 @@ export class Store {
   }
 
   notify(text: string, action?: Toast["action"], ms = 6_000) {
-    if (this.toastTimer) clearTimeout(this.toastTimer);
+    if (this.toastTimer) window.clearTimeout(this.toastTimer);
     const id = (this.toast?.id ?? 0) + 1;
     this.toast = { id, text, action };
-    this.toastTimer = setTimeout(() => {
+    this.toastTimer = window.setTimeout(() => {
       if (this.toast?.id === id) this.toast = null;
     }, ms);
   }
@@ -286,8 +286,8 @@ export class Store {
     const first = !this.snap;
     void this.refresh().then(() => {
       if (!this.active(generation)) return;
-      if (this.timer) clearTimeout(this.timer);
-      this.timer = setTimeout(() => void this.indexAll(), first ? 0 : REINDEX_DELAY_MS);
+      if (this.timer) window.clearTimeout(this.timer);
+      this.timer = window.setTimeout(() => void this.indexAll(), first ? 0 : REINDEX_DELAY_MS);
     });
   }
 

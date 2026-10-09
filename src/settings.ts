@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { App, PluginSettingTab, Setting, TFolder } from "obsidian";
+import { App, PluginSettingTab, Setting, TFolder, requireApiVersion, type SettingDefinitionItem } from "obsidian";
 import type ClaudeTutorPlugin from "./main";
 import { findClaude, modelLabel } from "./core/claude";
 
@@ -72,6 +72,19 @@ export function applyExclusions(s: TutorSettings, excludedBefore: string[], file
   s.studyFiles = [...filesBefore.filter((f) => !under(f)), ...addedSince];
 }
 
+/** One settings row: its name and description, plus a builder that adds its control. */
+interface Row {
+  name: string;
+  desc?: string;
+  /** Hide the row when this returns false. */
+  visible?: () => boolean;
+  build: (setting: Setting) => unknown;
+}
+interface Section {
+  heading: string;
+  rows: Row[];
+}
+
 export class TutorSettingTab extends PluginSettingTab {
   constructor(
     app: App,
@@ -80,173 +93,232 @@ export class TutorSettingTab extends PluginSettingTab {
     super(app, plugin);
   }
 
-  display() {
-    const { containerEl: el } = this;
+  /** The settings, defined once and rendered by either Obsidian API below. */
+  private sections(): Section[] {
     const s = this.plugin.settings;
+    // Folder lists as they were when the tab opened, so half-typed names don't drop notes.
     const excludedBefore = [...s.excludedFolders];
     const filesBefore = [...s.studyFiles];
     const save = async (rescan = false) => {
       await this.plugin.saveSettings();
       if (rescan) await this.plugin.backend.rescan();
     };
+    const slider = (min: number, max: number, get: () => number, set: (v: number) => void) => (setting: Setting) =>
+      setting.addSlider((sl) => {
+        sl.setLimits(min, max, 1)
+          .setValue(get())
+          .onChange(async (v) => {
+            set(v);
+            await save();
+          });
+        // 1.13+ always shows the value next to the slider; older versions need the tooltip.
+        if (!requireApiVersion("1.13.0")) sl.setDynamicTooltip();
+      });
+
+    return [
+      {
+        heading: "What to study",
+        rows: [
+          {
+            name: "Study folders",
+            desc: 'One folder per line. Use "/" for the whole vault. Clawd reads Markdown notes (and PDFs) inside them.',
+            build: (setting) =>
+              setting.addTextArea((t) =>
+                t
+                  .setPlaceholder("Courses/Networking\nPapers")
+                  .setValue(s.studyFolders.join("\n"))
+                  .onChange(async (v) => {
+                    s.studyFolders = lines(v);
+                    await save(true);
+                  }),
+              ),
+          },
+          {
+            name: "Excluded folders",
+            desc: "One per line. Notes in these folders are never read.",
+            build: (setting) =>
+              setting.addTextArea((t) =>
+                t
+                  .setPlaceholder("Templates\nArchive")
+                  .setValue(s.excludedFolders.join("\n"))
+                  .onChange(async (v) => {
+                    applyExclusions(s, excludedBefore, filesBefore, lines(v));
+                    await save(true);
+                  }),
+              ),
+          },
+          {
+            name: "Include PDFs",
+            desc: "Extract text from PDFs (uses pdftotext if installed, otherwise Obsidian's built-in PDF reader). Scanned PDFs without a text layer are skipped.",
+            build: (setting) =>
+              setting.addToggle((t) =>
+                t.setValue(s.includePdfs).onChange(async (v) => {
+                  s.includePdfs = v;
+                  await save(true);
+                }),
+              ),
+          },
+          {
+            name: "Individually added notes",
+            visible: () => s.studyFiles.length > 0,
+            build: (setting) =>
+              setting.setDesc(s.studyFiles.join(", ")).addButton((b) =>
+                b.setButtonText("Clear").onClick(async () => {
+                  s.studyFiles = [];
+                  await save(true);
+                  this.display();
+                }),
+              ),
+          },
+        ],
+      },
+      {
+        heading: "Reading",
+        rows: [
+          {
+            name: "Re-read notes after edits",
+            desc: "When you change a note, Clawd re-reads it in the background (one Claude request per note).",
+            build: (setting) =>
+              setting.addToggle((t) =>
+                t.setValue(s.autoIndex).onChange(async (v) => {
+                  s.autoIndex = v;
+                  await save();
+                }),
+              ),
+          },
+          {
+            name: "Ask before reading many notes",
+            desc: "Confirm first when more than this many notes need reading at once.",
+            build: (setting) =>
+              setting.addText((t) =>
+                t.setValue(String(s.confirmAbove)).onChange(async (v) => {
+                  s.confirmAbove = Math.max(1, Number(v) || DEFAULT_SETTINGS.confirmAbove);
+                  await save();
+                }),
+              ),
+          },
+        ],
+      },
+      {
+        heading: "Tutor",
+        rows: [
+          {
+            name: "Model",
+            desc: "Runs through your Claude Code login, so it uses your subscription.",
+            build: (setting) =>
+              setting.addDropdown((d) =>
+                d
+                  .addOptions(Object.fromEntries(MODEL_CHOICES.map((m) => [m.id, `${resolvedName(s, m.id)}: ${m.hint}`])))
+                  .setValue(s.model)
+                  .onChange(async (v) => {
+                    s.model = v;
+                    await save();
+                  }),
+              ),
+          },
+          {
+            name: "Effort",
+            desc: "How hard Claude thinks. Higher is slower and uses more of your limits.",
+            build: (setting) =>
+              setting.addDropdown((d) =>
+                d
+                  .addOptions(Object.fromEntries(EFFORT_CHOICES.map((e) => [e.id, `${e.name}: ${e.hint}`])))
+                  .setValue(s.effort)
+                  .onChange(async (v) => {
+                    s.effort = v;
+                    await save();
+                  }),
+              ),
+          },
+          {
+            name: "Concepts to explain per session",
+            build: slider(0, 5, () => s.explainPerSession, (v) => (s.explainPerSession = v)),
+          },
+          {
+            name: "Quiz questions per session",
+            build: slider(0, 10, () => s.quizQuestions, (v) => (s.quizQuestions = v)),
+          },
+          {
+            name: "Open in right sidebar",
+            desc: "Open Claude Tutor in the right sidebar instead of a tab.",
+            build: (setting) =>
+              setting.addToggle((t) =>
+                t.setValue(s.openInSidebar).onChange(async (v) => {
+                  s.openInSidebar = v;
+                  await save();
+                }),
+              ),
+          },
+          {
+            name: "Lesson notes folder",
+            desc: "Where the Teach tab saves lessons when you click “Save as note”.",
+            build: (setting) =>
+              setting.addText((t) =>
+                t
+                  .setPlaceholder("Claude Tutor/Lessons")
+                  .setValue(s.lessonFolder)
+                  .onChange(async (v) => {
+                    s.lessonFolder = v.trim();
+                    await save();
+                  }),
+              ),
+          },
+        ],
+      },
+      {
+        heading: "Advanced",
+        rows: [
+          {
+            name: "Path to claude",
+            desc: `Leave empty to auto-detect (currently: ${findClaude("")}).`,
+            build: (setting) =>
+              setting.addText((t) =>
+                t
+                  .setPlaceholder("~/.local/bin/claude")
+                  .setValue(s.claudePath)
+                  .onChange(async (v) => {
+                    s.claudePath = v.trim().replace(/^~(?=\/)/, homedir());
+                    await save();
+                  }),
+              ),
+          },
+        ],
+      },
+    ];
+  }
+
+  /** Obsidian 1.13+: declarative settings, so they show up in settings search. */
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    return this.sections().map((sec) => ({
+      type: "group" as const,
+      heading: sec.heading,
+      items: sec.rows.map((row) => ({
+        name: row.name,
+        desc: row.desc,
+        visible: row.visible,
+        render: (setting: Setting) => {
+          setting.setName(row.name);
+          if (row.desc) setting.setDesc(row.desc);
+          row.build(setting);
+        },
+      })),
+    }));
+  }
+
+  /** Older Obsidian (before 1.13) renders the same rows imperatively. */
+  display() {
+    if (requireApiVersion("1.13.0")) return super.display();
+    const el = this.containerEl;
     el.empty();
-
-    new Setting(el).setName("What to study").setHeading();
-    new Setting(el)
-      .setName("Study folders")
-      .setDesc('One folder per line. Use "/" for the whole vault. Clawd reads Markdown notes (and PDFs) inside them.')
-      .addTextArea((t) =>
-        t
-          .setPlaceholder("Courses/Networking\nPapers")
-          .setValue(s.studyFolders.join("\n"))
-          .onChange(async (v) => {
-            s.studyFolders = lines(v);
-            await save(true);
-          }),
-      );
-    new Setting(el)
-      .setName("Excluded folders")
-      .setDesc("One per line. Notes in these folders are never read.")
-      .addTextArea((t) =>
-        t
-          .setPlaceholder("Templates\nArchive")
-          .setValue(s.excludedFolders.join("\n"))
-          .onChange(async (v) => {
-            applyExclusions(s, excludedBefore, filesBefore, lines(v));
-            await save(true);
-          }),
-      );
-    new Setting(el)
-      .setName("Include PDFs")
-      .setDesc("Extract text from PDFs (uses pdftotext if installed, otherwise Obsidian's built-in PDF reader). Scanned PDFs without a text layer are skipped.")
-      .addToggle((t) =>
-        t.setValue(s.includePdfs).onChange(async (v) => {
-          s.includePdfs = v;
-          await save(true);
-        }),
-      );
-    if (s.studyFiles.length) {
-      new Setting(el)
-        .setName("Individually added notes")
-        .setDesc(s.studyFiles.join(", "))
-        .addButton((b) =>
-          b.setButtonText("Clear").onClick(async () => {
-            s.studyFiles = [];
-            await save(true);
-            this.display();
-          }),
-        );
+    for (const sec of this.sections()) {
+      new Setting(el).setName(sec.heading).setHeading();
+      for (const row of sec.rows) {
+        if (row.visible && !row.visible()) continue;
+        const setting = new Setting(el).setName(row.name);
+        if (row.desc) setting.setDesc(row.desc);
+        row.build(setting);
+      }
     }
-
-    new Setting(el).setName("Reading").setHeading();
-    new Setting(el)
-      .setName("Re-read notes after edits")
-      .setDesc("When you change a note, Clawd re-reads it in the background (one Claude request per note).")
-      .addToggle((t) =>
-        t.setValue(s.autoIndex).onChange(async (v) => {
-          s.autoIndex = v;
-          await save();
-        }),
-      );
-    new Setting(el)
-      .setName("Ask before reading many notes")
-      .setDesc("Confirm first when more than this many notes need reading at once.")
-      .addText((t) =>
-        t.setValue(String(s.confirmAbove)).onChange(async (v) => {
-          s.confirmAbove = Math.max(1, Number(v) || DEFAULT_SETTINGS.confirmAbove);
-          await save();
-        }),
-      );
-
-    new Setting(el).setName("Tutor").setHeading();
-    new Setting(el)
-      .setName("Model")
-      .setDesc("Runs through your Claude Code login, so it uses your subscription.")
-      .addDropdown((d) =>
-        d
-          .addOptions(
-            Object.fromEntries(
-              MODEL_CHOICES.map((m) => [m.id, `${resolvedName(s, m.id)}: ${m.hint}`]),
-            ),
-          )
-          .setValue(s.model)
-          .onChange(async (v) => {
-            s.model = v;
-            await save();
-          }),
-      );
-    new Setting(el)
-      .setName("Effort")
-      .setDesc("How hard Claude thinks. Higher is slower and uses more of your limits.")
-      .addDropdown((d) =>
-        d
-          .addOptions(Object.fromEntries(EFFORT_CHOICES.map((e) => [e.id, `${e.name}: ${e.hint}`])))
-          .setValue(s.effort)
-          .onChange(async (v) => {
-            s.effort = v;
-            await save();
-          }),
-      );
-    new Setting(el)
-      .setName("Concepts to explain per session")
-      .addSlider((sl) =>
-        sl
-          .setLimits(0, 5, 1)
-          .setValue(s.explainPerSession)
-          .setDynamicTooltip()
-          .onChange(async (v) => {
-            s.explainPerSession = v;
-            await save();
-          }),
-      );
-    new Setting(el)
-      .setName("Quiz questions per session")
-      .addSlider((sl) =>
-        sl
-          .setLimits(0, 10, 1)
-          .setValue(s.quizQuestions)
-          .setDynamicTooltip()
-          .onChange(async (v) => {
-            s.quizQuestions = v;
-            await save();
-          }),
-      );
-    new Setting(el)
-      .setName("Open in right sidebar")
-      .setDesc("Open Claude Tutor in the right sidebar instead of a tab.")
-      .addToggle((t) =>
-        t.setValue(s.openInSidebar).onChange(async (v) => {
-          s.openInSidebar = v;
-          await save();
-        }),
-      );
-
-    new Setting(el)
-      .setName("Lesson notes folder")
-      .setDesc("Where the Teach tab saves lessons when you click “Save as note”.")
-      .addText((t) =>
-        t
-          .setPlaceholder("Claude Tutor/Lessons")
-          .setValue(s.lessonFolder)
-          .onChange(async (v) => {
-            s.lessonFolder = v.trim();
-            await save();
-          }),
-      );
-
-    new Setting(el).setName("Advanced").setHeading();
-    new Setting(el)
-      .setName("Path to claude")
-      .setDesc(`Leave empty to auto-detect (currently: ${findClaude("")}).`)
-      .addText((t) =>
-        t
-          .setPlaceholder("~/.local/bin/claude")
-          .setValue(s.claudePath)
-          .onChange(async (v) => {
-            s.claudePath = v.trim().replace(/^~(?=\/)/, homedir());
-            await save();
-          }),
-      );
   }
 }
 

@@ -15,7 +15,7 @@ import { store } from "./ui/lib/store.svelte";
 const PENDING_SAVES = Symbol.for("claude-tutor.pending-progress-saves");
 type PendingSaves = Map<string, Promise<void>>;
 function pendingSaves(): PendingSaves {
-  const g = globalThis as unknown as Record<symbol, PendingSaves | undefined>;
+  const g = window as unknown as Record<symbol, PendingSaves | undefined>;
   let saves = g[PENDING_SAVES];
   if (!saves) g[PENDING_SAVES] = saves = new Map();
   return saves;
@@ -31,7 +31,7 @@ export default class ClaudeTutorPlugin extends Plugin {
   settings: TutorSettings = { ...DEFAULT_SETTINGS };
   backend!: Backend;
   private progressFile = "";
-  private pendingReloads = new Map<string, ReturnType<typeof setTimeout>>();
+  private pendingReloads = new Map<string, number>();
   private saveQueue: Promise<void> = Promise.resolve();
   private scheduleSave?: Debouncer<[], void>;
   private unloaded = false;
@@ -95,7 +95,7 @@ export default class ClaudeTutorPlugin extends Plugin {
   private async finishUnload() {
     this.unloaded = true;
     this.scheduleSave?.cancel();
-    for (const timer of this.pendingReloads.values()) clearTimeout(timer);
+    for (const timer of this.pendingReloads.values()) window.clearTimeout(timer);
     this.pendingReloads.clear();
     store.dispose();
     this.backend?.dispose();
@@ -270,10 +270,10 @@ export default class ClaudeTutorPlugin extends Plugin {
     const reload = (file: TFile) => {
       if (this.unloaded) return;
       const path = file.path;
-      clearTimeout(this.pendingReloads.get(path));
+      window.clearTimeout(this.pendingReloads.get(path));
       this.pendingReloads.set(
         path,
-        setTimeout(() => void (async () => {
+        window.setTimeout(() => void (async () => {
           this.pendingReloads.delete(path);
           if (this.unloaded) return;
           await lib.loadFile(file);
@@ -312,7 +312,7 @@ export default class ClaudeTutorPlugin extends Plugin {
         }
         for (const [path, timer] of this.pendingReloads) {
           if (remapPath(path, oldPath, f.path) !== path) {
-            clearTimeout(timer);
+            window.clearTimeout(timer);
             this.pendingReloads.delete(path);
           }
         }

@@ -56,3 +56,4 @@ export function debounce(fn: () => void, delay: number) {
   run.cancel = () => { clearTimeout(timer); return run; };
   return run;
 }
+export const requireApiVersion = () => true;

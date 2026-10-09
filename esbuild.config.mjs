@@ -1,6 +1,6 @@
 import esbuild from "esbuild";
 import sveltePlugin from "esbuild-svelte";
-import builtins from "builtin-modules";
+import { builtinModules as builtins } from "node:module";
 
 const watch = process.argv.includes("--watch");
 
