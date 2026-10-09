@@ -37,11 +37,19 @@ export const api = {
     peeked: boolean;
     stuck: boolean;
     images?: ImageInput[];
+    signal?: AbortSignal;
+    followUp?: string;
   }) => backend.evaluateExplanation(a),
-  makeQuiz: (conceptIds: number[], count: number) => backend.makeQuiz(conceptIds, count),
+  makeQuiz: (conceptIds: number[], count: number, signal?: AbortSignal) => backend.makeQuiz(conceptIds, count, signal),
   selfReport: async (conceptId: number, kind: "known" | "understood") => backend.selfReport(conceptId, kind),
-  gradeAnswer: (question: Question, choice: number | null, answer: string, confidence: Confidence, images: ImageInput[] = []) =>
-    backend.gradeAnswer(question, choice, answer, confidence, images),
+  gradeAnswer: (
+    question: Question,
+    choice: number | null,
+    answer: string,
+    confidence: Confidence,
+    images: ImageInput[] = [],
+    signal?: AbortSignal,
+  ) => backend.gradeAnswer(question, choice, answer, confidence, images, signal),
   checkAnswer: (a: {
     question: string;
     key: string;
@@ -49,15 +57,28 @@ export const api = {
     answer: string;
     misconceptionId: number | null;
     images?: ImageInput[];
+    signal?: AbortSignal;
   }) => backend.checkAnswer(a),
-  askTutor: (conceptId: number | null, situation: string, history: [boolean, string][], message: string, images: ImageInput[] = []) =>
-    backend.askTutor(conceptId, situation, history, message, images),
+  askTutor: (
+    conceptId: number | null,
+    situation: string,
+    history: [boolean, string][],
+    message: string,
+    images: ImageInput[] = [],
+    signal?: AbortSignal,
+  ) => backend.askTutor(conceptId, situation, history, message, images, signal),
   relevantNotes: async (topic: string) => backend.relevantNotes(topic),
-  teach: (topic: string, sources: string[], history: [boolean, string][], message: string, images: ImageInput[] = []) =>
-    backend.teach(topic, sources, history, message, images),
+  teach: (topic: string, sources: string[], history: [boolean, string][], message: string, images: ImageInput[] = [], signal?: AbortSignal) =>
+    backend.teach(topic, sources, history, message, images, signal),
   saveLesson: (topic: string, summary: string, sources: string[]) => backend.saveLesson(topic, summary, sources),
   resolveMistake: async (id: number) => backend.resolveMistake(id),
+  reopenMistake: async (id: number) => backend.reopenMistake(id),
 };
+
+/** True when a Claude request failed because the learner cancelled it. */
+export function isCancel(e: unknown): boolean {
+  return (e instanceof Error && e.name === "AbortError") || errText(e) === "Claude request cancelled.";
+}
 
 export function errText(e: unknown): string {
   return typeof e === "string" ? e : e instanceof Error ? e.message : JSON.stringify(e);

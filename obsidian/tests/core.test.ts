@@ -128,6 +128,31 @@ describe("progress + srs", () => {
   });
 });
 
+describe("activity, streaks and misconception context", () => {
+  const at = (y: number, m: number, d: number, h = 12) => new Date(y, m, d, h).toISOString();
+
+  it("counts reviews per local day and the current streak", () => {
+    const p = new Progress(emptyProgress());
+    p.data.attempts = [at(2026, 9, 5), at(2026, 9, 7), at(2026, 9, 8), at(2026, 9, 8, 22), at(2026, 9, 9, 1)].map((ts) => ({ concept_id: 1, kind: "quiz", score: 1, ts }));
+    const now = new Date(2026, 9, 9, 15);
+    expect(p.activity(7, now)).toEqual([0, 0, 1, 0, 1, 2, 1]);
+    expect(p.streak(now)).toBe(3);
+    // No review yet today: yesterday's streak still counts.
+    expect(p.streak(new Date(2026, 9, 10, 9))).toBe(3);
+    expect(p.streak(new Date(2026, 9, 11, 9))).toBe(0);
+  });
+
+  it("remembers the question behind a misconception and can reopen it", () => {
+    const p = new Progress(emptyProgress());
+    const id = p.addMisconception(1, "Thinks heavier things fall faster", "Why do a hammer and a feather land together?");
+    expect(p.openMisconceptions()[0].source).toBe("Why do a hammer and a feather land together?");
+    p.resolveMisconception(id);
+    expect(p.openMisconceptions()).toHaveLength(0);
+    p.reopenMisconception(id);
+    expect(p.openMisconceptions().map((m) => m.id)).toEqual([id]);
+  });
+});
+
 describe("claude result parsing", () => {
   it("prefers structured output", () => {
     const out = JSON.stringify({

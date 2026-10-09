@@ -4,7 +4,8 @@
 -->
 <script lang="ts">
   import { onMount, tick } from "svelte";
-  import { api, asMood, errText, type Mood } from "../lib/api";
+  import { api, asMood, errText, isCancel, type Mood } from "../lib/api";
+  import { enterToSend, SEND_HINT } from "../lib/util";
   import { store } from "../lib/store.svelte";
   import { TEACH_CONTROLS } from "../../core/tutor";
   import { imageFiles, toInputs, type Img } from "../lib/images";
@@ -43,6 +44,8 @@
   // Bumped on reset so a save still in flight can't mark the next lesson as saved.
   let lesson = 0;
   let saving = $state(false);
+  let request: AbortController | null = null;
+  let slow = $state(false);
 
   const lastClawd = $derived([...msgs].reverse().find((m) => m.from === "clawd")?.id);
   const done = $derived(stage === "wrap_up");
@@ -71,15 +74,23 @@
     const taken = images;
     images = [];
     const imgs = toInputs(taken);
+    const sentId = nextId;
     if (shown || taken.length) push({ from: "me", text: shown, images: taken.map((i) => i.url) });
     const message = [control, text].filter(Boolean).join("\n\n");
     const histText = (shown || text) + (taken.length ? " [attached an image]" : "");
     const turn = async () => {
       if (busy || starting) return;
+      // The composer gets disabled while Clawd thinks; keep focus in the view so Esc still cancels.
+      const hadFocus = !!rootEl?.contains(document.activeElement);
       busy = true;
+      slow = false;
+      const ctl = new AbortController();
+      request = ctl;
+      const slowTimer = setTimeout(() => (slow = true), 8_000);
+      if (hadFocus) void tick().then(() => { if (rootEl && !rootEl.contains(document.activeElement)) rootEl.focus({ preventScroll: true }); });
       store.say("thinking", "Hmm, let me think about how to put this…");
       try {
-        const r = await api.teach(topic, $state.snapshot(sources), $state.snapshot(history), message, imgs);
+        const r = await api.teach(topic, $state.snapshot(sources), $state.snapshot(history), message, imgs, ctl.signal);
         history.push([true, histText], [false, r.reply]);
         const mood = asMood(r.mood, r.stage === "wrap_up" ? "celebrating" : "curious");
         push({ from: "clawd", md: r.reply, mood });
@@ -92,9 +103,25 @@
           progress = 100;
         }
       } catch (e) {
-        push({ from: "error", text: errText(e), retry: turn });
-        store.say("confused", "Oops, I couldn't reach my brain.");
+        if (ctl.signal.aborted || isCancel(e)) {
+          // Put back what was sent so it can be edited. Control buttons (hint, show…) just vanish.
+          msgs = msgs.filter((m) => m.id !== sentId);
+          if (!control) draft = text;
+          images = taken;
+          if (!history.length) {
+            // Cancelled the very first turn: back to the topic box.
+            started = false;
+            msgs = [];
+          }
+          store.say("happy", "Okay, stopped.");
+        } else {
+          push({ from: "error", text: errText(e), retry: turn });
+          store.say("confused", "Oops, I couldn't reach my brain.");
+        }
       } finally {
+        clearTimeout(slowTimer);
+        if (request === ctl) request = null;
+        slow = false;
         busy = false;
         if (!done) void tick().then(() => inputEl?.focus());
       }
@@ -149,6 +176,35 @@
     }
   }
 
+  function cancel() {
+    request?.abort();
+  }
+
+  /** Start over, asking first if that would throw away a lesson in progress or an unsaved note. */
+  async function newLesson() {
+    if (busy || starting) return;
+    const unsaved = done && !!summary && !savedPath;
+    const inProgress = !done && msgs.some((m) => m.from === "me");
+    if (unsaved || inProgress) {
+      const pick = await store.confirm(
+        unsaved ? "Your study note isn't saved" : "Start a new lesson?",
+        unsaved
+          ? "Starting a new lesson clears this one, including the study note Clawd wrote for you."
+          : "This conversation will be cleared. Lessons aren't saved until you wrap up and save the note.",
+        [
+          { id: "keep", label: unsaved ? "Go back" : "Keep going" },
+          ...(unsaved ? [{ id: "save", label: "Save, then start new" }] : []),
+          { id: "new", label: "Start new", danger: true, primary: !unsaved },
+        ],
+      );
+      if (pick === "save") {
+        await save();
+        if (!savedPath) return;
+      } else if (pick !== "new") return;
+    }
+    reset();
+  }
+
   function reset() {
     if (busy || starting) return;
     lesson++;
@@ -190,6 +246,11 @@
   }
 
   function onKey(e: KeyboardEvent) {
+    if (e.key === "Escape" && busy) {
+      e.preventDefault();
+      cancel();
+      return;
+    }
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       e.stopPropagation();
@@ -200,13 +261,15 @@
   onMount(() => {
     store.primaryHandlers.teach = primary;
     return () => {
+      request?.abort();
       if (store.primaryHandlers.teach === primary) delete store.primaryHandlers.teach;
     };
   });
 </script>
 
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="teach" bind:this={rootEl} onkeydown={onKey}>
+<div class="teach" tabindex="-1" bind:this={rootEl} onkeydown={onKey}>
   {#if !started}
     <div class="start">
       <Clawd mood={store.liveMood} size={110} />
@@ -221,21 +284,17 @@
           <textarea
             bind:value={topic}
             rows="2"
+            aria-label="What do you want to learn?"
             placeholder="Ask a question or describe a topic…"
-            onkeydown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey) {
-                e.preventDefault();
-                void start();
-              }
-            }}
+            onkeydown={(e) => enterToSend(e, () => void start())}
           ></textarea>
           <div class="ct-composer-actions">
             <AttachButton bind:this={attacher} bind:images />
+            <span class="ct-composer-hint">{SEND_HINT}</span>
             <SendButton label="Teach me" disabled={!topic.trim() && !images.length} onclick={() => start()} />
           </div>
         </div>
         <div class="ct-composer-footer">
-          <span class="ct-composer-hint">Ctrl/Cmd+Enter to send</span>
           <div class="ct-composer-settings"><ModelPicker /></div>
         </div>
       </div>
@@ -258,10 +317,12 @@
         </div>
       </div>
       <div class="top-actions">
+        <div class="ct-composer-settings wide-only"><ModelPicker /></div>
+        <span class="narrow-only"><ModelPicker compact /></span>
         {#if !done && history.length >= 4}
           <button class="btn ghost sm" disabled={waiting} onclick={() => control("wrap")}>Wrap up</button>
         {/if}
-        <button class="btn ghost sm" disabled={waiting} onclick={reset}>New lesson</button>
+        <button class="btn ghost sm" disabled={waiting} onclick={newLesson}>New lesson</button>
       </div>
     </header>
 
@@ -288,12 +349,12 @@
               <div class="avatar">
                 <Clawd mood={m.id === lastClawd && !waiting ? store.liveMood : m.mood} size={40} animate={m.id === lastClawd && !waiting} follow={false} />
               </div>
-              <div class="bubble card"><Markdown md={m.md} /></div>
+              <div class="bubble ct-card"><Markdown md={m.md} /></div>
             </div>
           {:else}
             <div class="clawd-row">
               <div class="avatar"><Clawd mood="confused" size={40} animate={false} /></div>
-              <div class="bubble card err">
+              <div class="bubble ct-card err">
                 <p><b>I couldn't reach Claude.</b></p>
                 <p class="muted small">{m.text}</p>
                 <button class="btn sm" onclick={() => { msgs = msgs.filter((x) => x.id !== m.id); m.retry(); }}><Icon name="retry" size={15} />Try again</button>
@@ -302,13 +363,14 @@
           {/if}
         {/each}
         {#if waiting}
-          <div class="clawd-row">
+          <div class="clawd-row thinking-row" aria-live="polite">
             <div class="avatar"><Clawd mood="thinking" size={40} follow={false} /></div>
-            <div class="bubble card typing"><span></span><span></span><span></span></div>
+            <div class="bubble ct-card typing" aria-label="Clawd is thinking"><span></span><span></span><span></span></div>
+            {#if slow}<p class="slow faint small">Still thinking… this can take a little while.</p>{/if}
           </div>
         {/if}
         {#if done && summary}
-          <div class="card summary">
+          <div class="ct-card summary">
             <p class="sec-title">Your study note</p>
             <Markdown md={summary} />
             <div class="summary-actions">
@@ -317,7 +379,7 @@
               {:else}
                 <button class="btn primary" disabled={saving} onclick={save}><Icon name="save" size={16} />Save as note</button>
               {/if}
-              <button class="btn ghost" onclick={reset}>Learn something else</button>
+              <button class="btn ghost" onclick={newLesson}>Learn something else</button>
             </div>
           </div>
         {/if}
@@ -334,10 +396,13 @@
               bind:value={draft}
               rows="2"
               disabled={waiting}
+              aria-label="Your reply"
               placeholder={waiting ? "Clawd is thinking…" : "Your answer, your reasoning, or a question…"}
+              onkeydown={(e) => enterToSend(e, submit)}
             ></textarea>
             <div class="ct-composer-actions">
               <AttachButton bind:this={attacher} bind:images />
+              <span class="ct-composer-hint">{SEND_HINT}</span>
               <SendButton label="Send" disabled={waiting || (!draft.trim() && !images.length)} onclick={submit} />
             </div>
           </div>
@@ -347,7 +412,9 @@
               <button class="btn ghost sm self show" disabled={waiting} onclick={() => control("show")}><Icon name="eye" size={15} />Show me</button>
               <button class="btn ghost sm self got" disabled={waiting} onclick={() => control("next")}><Icon name="check" size={15} />I get it</button>
             </div>
-            <div class="ct-composer-settings"><ModelPicker /></div>
+            {#if busy}
+              <button class="btn sm cancel" onclick={cancel} title="Stop this request (Esc)"><Icon name="x" size={14} />Cancel</button>
+            {/if}
           </div>
         </div>
       </footer>
@@ -356,6 +423,9 @@
 </div>
 
 <style>
+  .teach:focus {
+    outline: none;
+  }
   .teach {
     height: 100%;
     display: flex;
@@ -506,6 +576,16 @@
     flex-direction: column;
     gap: 6px;
   }
+  .thinking-row {
+    flex-wrap: wrap;
+  }
+  .slow {
+    flex-basis: 100%;
+    padding-left: 54px;
+  }
+  .cancel {
+    margin-left: auto;
+  }
   .typing {
     flex: none;
     display: flex;
@@ -574,7 +654,16 @@
       opacity: 1;
     }
   }
+  .narrow-only {
+    display: none;
+  }
   @container (max-width: 560px) {
+    .wide-only {
+      display: none;
+    }
+    .narrow-only {
+      display: inline-flex;
+    }
     .col {
       padding: 0 12px;
     }

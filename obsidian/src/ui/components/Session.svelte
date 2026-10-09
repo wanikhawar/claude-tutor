@@ -9,6 +9,8 @@
     api,
     asMood,
     errText,
+    isCancel,
+    obsidianApp,
     type CheckResult,
     type Confidence,
     type FeynmanEval,
@@ -31,7 +33,7 @@
   import SendButton from "./SendButton.svelte";
   import Thumbs from "./Thumbs.svelte";
   import { imageFiles, toInputs, type Img } from "../lib/images";
-  import { scoreColor } from "../lib/util";
+  import { enterToSend, loadDraft, masteryColor, masteryLevel, relativeDue, saveDraft, scoreColor, SEND_HINT } from "../lib/util";
 
   let { plan }: { plan: Plan } = $props();
 
@@ -65,7 +67,15 @@
   let ask = $state("");
   let mode = $state<"answer" | "ask">("answer");
   let choice = $state<number | null>(null);
-  let confidence = $state<Confidence>("unsure");
+  /** No default: a rating the learner actually chose is a much better signal. */
+  let confidence = $state<Confidence | null>(null);
+  let needConfidence = $state(false);
+  /** The Claude request in flight, so it can be cancelled. */
+  let request: AbortController | null = null;
+  /** The reply is taking longer than usual. */
+  let slow = $state(false);
+  /** A request with no earlier state to return to failed or was cancelled: retry it, or skip the step. */
+  let stalled = $state<(() => void) | null>(null);
   let threadEl = $state<HTMLDivElement>();
   /** Images attached to the message being composed. */
   let images = $state<Img[]>([]);
@@ -75,7 +85,7 @@
   function takeImages() {
     const taken = images;
     images = [];
-    return { inputs: toInputs(taken), urls: taken.map((i) => i.url) };
+    return { inputs: toInputs(taken), urls: taken.map((i) => i.url), taken };
   }
 
   function onPaste(e: ClipboardEvent) {
@@ -108,6 +118,16 @@
     quiz: [],
   });
   let chat: [boolean, string][] = [];
+  /** Mastery of each concept this session touched, as it was before. */
+  const before = new Map<number, number>();
+  let touched = $state<number[]>([]);
+  function touch(...ids: number[]) {
+    for (const id of ids) {
+      if (before.has(id)) continue;
+      before.set(id, store.concept(id)?.mastery ?? 0);
+      touched.push(id);
+    }
+  }
   let nextId = 1;
   let activeQuestionId = $state<number | null>(null);
 
@@ -144,27 +164,64 @@
     inputEl?.focus();
   }
 
-  /** Run a Claude call with the thinking indicator; failures become a retryable message. */
-  async function run(fn: () => Promise<void>, line = "Hmm, let me think…") {
-    const before = phase;
+  /**
+   * Run a Claude call with the thinking indicator; failures become a retryable message.
+   * If the learner cancels, `undo` puts back what they sent so they can edit it.
+   */
+  async function run(fn: (signal: AbortSignal) => Promise<void>, line = "Hmm, let me think…", undo?: () => void) {
+    const prev = phase;
+    const ctl = new AbortController();
+    request = ctl;
+    stalled = null;
+    // The composer is about to be replaced or disabled; keep focus in the session so Esc still cancels.
+    const hadFocus = !!rootEl?.contains(document.activeElement);
     phase = { p: "busy" };
     thinking = true;
+    slow = false;
+    const slowTimer = setTimeout(() => (slow = true), 8_000);
     store.say("thinking", line);
     void scrollDown();
+    if (hadFocus) void tick().then(() => { if (rootEl && !rootEl.contains(document.activeElement)) rootEl.focus({ preventScroll: true }); });
+    const retry = () => run(fn, line, undo);
     try {
-      await fn();
+      await fn(ctl.signal);
     } catch (e) {
-      phase = before;
-      push({
-        kind: "error",
-        text: errText(e),
-        retry: () => run(fn, line),
-        mood: "confused",
-      });
-      store.say("confused", "Oops, I couldn't reach my brain.");
+      phase = prev;
+      // Nothing to go back to (e.g. writing a quiz): offer to retry or skip instead of a dead "thinking" state.
+      if (prev.p === "busy") stalled = retry;
+      if ((ctl.signal.aborted || isCancel(e)) && undo) {
+        undo();
+        store.say("happy", "Okay, stopped. Take your time.");
+      } else if (ctl.signal.aborted || isCancel(e)) {
+        store.say("happy", "Okay, stopped.");
+      } else {
+        push({
+          kind: "error",
+          text: errText(e),
+          retry,
+          mood: "confused",
+        });
+        store.say("confused", "Oops, I couldn't reach my brain.");
+      }
     } finally {
+      clearTimeout(slowTimer);
+      if (request === ctl) request = null;
       thinking = false;
+      slow = false;
     }
+  }
+
+  function cancel() {
+    request?.abort();
+  }
+
+  /** Remove the learner's last message and put its text back in the composer. */
+  function unsend(id: number, text: string, taken: Img[], into: "draft" | "ask" = "draft") {
+    msgs = msgs.filter((m) => m.id !== id);
+    if (into === "ask") ask = text;
+    else draft = text;
+    images = taken;
+    void focusInput();
   }
 
   // -------------------------------------------------------------------------
@@ -180,6 +237,9 @@
     if (step.kind === "explain") {
       const c = store.concept(step.conceptId);
       if (!c) return startStep(i + 1);
+      touch(c.id);
+      store.currentConceptId = c.id;
+      draft = loadDraft(obsidianApp(), `explain:${c.id}`);
       push({ kind: "divider", text: `Explain · ${c.name}` });
       question = conceptQuestion(c);
       const intro = isNew(c)
@@ -191,8 +251,12 @@
       void focusInput();
     } else {
       push({ kind: "divider", text: `Quiz · ${step.count} questions` });
-      void run(async () => {
-        const set = await api.makeQuiz(step.conceptIds, step.count);
+      touch(...step.conceptIds);
+      store.currentConceptId = null;
+      // Not the previous step's phase: cancelling must not drop the learner back into a finished step.
+      phase = { p: "busy" };
+      void run(async (signal) => {
+        const set = await api.makeQuiz(step.conceptIds, step.count, signal);
         if (!set.questions.length) throw "Claude didn't return any questions.";
         push({ kind: "say", md: set.mascot_line || "Pop quiz! No peeking at your notes.", mood: asMood(set.mood, "curious") });
         store.say(asMood(set.mood, "curious"), set.mascot_line);
@@ -204,6 +268,7 @@
 
   function finish() {
     phase = { p: "done" };
+    store.currentConceptId = null;
     push({ kind: "summary", mood: "celebrating" });
     const n = results.explained.filter((e) => e.passed).length;
     store.say("celebrating", n ? `Session done! You can now explain ${n} more thing${n > 1 ? "s" : ""}.` : "Session done! Great work.");
@@ -227,14 +292,19 @@
     const ph = phase;
     const text = draft.trim();
     if (!stuck && !text && !images.length) return;
-    const img = stuck ? { inputs: [], urls: [] } : takeImages();
-    push({ kind: "me", text: stuck ? "I'm stuck. Can you teach me?" : text, images: img.urls });
+    const img = stuck ? { inputs: [], urls: [], taken: [] } : takeImages();
+    const sent = push({ kind: "me", text: stuck ? "I'm stuck. Can you teach me?" : text, images: img.urls });
+    const kept = draft;
+    // The stored draft is only cleared once Clawd has read it, so closing the view mid-request keeps it.
     draft = "";
     const c = store.concept(ph.conceptId);
     const asked = question;
+    const followUp = stuck ? "" : turnPrompt;
     void run(
-      async () => {
+      async (signal) => {
         const ev = await api.evaluateExplanation({
+          signal,
+          followUp,
           conceptId: ph.conceptId,
           question: asked,
           explanation: text,
@@ -244,6 +314,7 @@
           stuck,
           images: img.inputs,
         });
+        saveDraft(obsidianApp(), `explain:${ph.conceptId}`, "");
         const mood: Mood = ev.passed ? "celebrating" : asMood(ev.mood, "encouraging");
         push({ kind: "feedback", ev, stuck, conceptId: ph.conceptId, mood });
         store.say(mood, ev.mascot_line);
@@ -264,6 +335,7 @@
         if (!ev.passed) void focusInput();
       },
       stuck ? "No worries. Let me teach it from scratch…" : "Reading your explanation carefully…",
+      () => unsend(sent, kept, img.taken),
     );
   }
 
@@ -274,6 +346,7 @@
     const c = store.concept(ph.conceptId);
     const before = ph.attempt === 0;
     push({ kind: "me", text: before ? "I already know this one." : "I understand it now." });
+    saveDraft(obsidianApp(), `explain:${ph.conceptId}`, "");
     void api.selfReport(ph.conceptId, before ? "known" : "understood");
     const r = results.explained.findLast((x) => x.conceptId === ph.conceptId);
     if (r) {
@@ -321,7 +394,8 @@
 
   function showQuestion(questions: Question[], idx: number) {
     choice = null;
-    confidence = "unsure";
+    confidence = null;
+    needConfidence = false;
     activeQuestionId = push({ kind: "question", q: questions[idx], n: idx + 1, total: questions.length, answered: null, mood: "curious" });
     if (!isMcq(questions[idx])) void focusInput();
     else void tick().then(() => rootEl?.focus({ preventScroll: true }));
@@ -341,18 +415,24 @@
     if (mcq && choice === null) return;
     const text = draft.trim();
     if (!mcq && !text && !images.length) return;
+    if (!confidence) {
+      needConfidence = true;
+      store.say("curious", "Before I check: how sure are you?");
+      return;
+    }
     const chosen = choice;
     const conf = confidence;
-    const img = mcq ? { inputs: [], urls: [] } : takeImages();
-    push({
+    const img = mcq ? { inputs: [], urls: [], taken: [] } : takeImages();
+    const sent = push({
       kind: "me",
       text: mcq ? `${"ABCD"[chosen!] ?? chosen! + 1}. ${q.options[chosen!]}` : text,
       note: { guess: "Just guessing", unsure: "Not sure", sure: "Confident" }[conf],
       images: img.urls,
     });
+    const kept = draft;
     draft = "";
-    void run(async () => {
-      const out = await api.gradeAnswer(q, mcq ? chosen : null, text, conf, img.inputs);
+    void run(async (signal) => {
+      const out = await api.gradeAnswer(q, mcq ? chosen : null, text, conf, img.inputs, signal);
       const qm = msgs.findLast((m) => m.kind === "question");
       if (qm && qm.kind === "question" && mcq) qm.answered = chosen;
       const mood = asMood(out.grade.mood, out.grade.correct ? "happy" : "encouraging");
@@ -364,7 +444,7 @@
       if (needsCheck) void focusInput();
       else void tick().then(() => rootEl?.focus({ preventScroll: true }));
       void store.refresh();
-    }, "Checking your answer…");
+    }, "Checking your answer…", () => unsend(sent, kept, img.taken));
   }
 
   function submitCheck() {
@@ -374,10 +454,12 @@
     const text = draft.trim();
     if (!text && !images.length) return;
     const img = takeImages();
-    push({ kind: "me", text, images: img.urls });
+    const sent = push({ kind: "me", text, images: img.urls });
+    const kept = draft;
     draft = "";
-    void run(async () => {
+    void run(async (signal) => {
       const r = await api.checkAnswer({
+        signal,
         question: g.check_question,
         key: g.check_answer,
         misconception: g.misconception,
@@ -390,7 +472,7 @@
       store.say(mood, r.mascot_line);
       phase = { ...ph, stage: "checked" };
       void store.refresh();
-    }, "Did it click? Let's see…");
+    }, "Did it click? Let's see…", () => unsend(sent, kept, img.taken));
   }
 
   function nextQuestion() {
@@ -450,18 +532,19 @@
     if ((!message && !images.length) || phase.p === "busy") return;
     const s = situation();
     const img = takeImages();
-    push({ kind: "me", text: message, images: img.urls });
+    const sent = push({ kind: "me", text: message, images: img.urls });
+    const kept = ask;
     ask = "";
     const history = [...chat];
     const back = phase;
-    void run(async () => {
-      const r = await api.askTutor(s.conceptId, s.text, history, message, img.inputs);
+    void run(async (signal) => {
+      const r = await api.askTutor(s.conceptId, s.text, history, message, img.inputs, signal);
       chat.push([true, message + (img.urls.length ? " [attached an image]" : "")], [false, r.reply]);
       const mood = asMood(r.mood, "happy");
       push({ kind: "say", md: r.reply, mood });
       store.say(mood, r.mascot_line);
       phase = back;
-    }, "Good question! Thinking…");
+    }, "Good question! Thinking…", () => unsend(sent, kept, img.taken, "ask"));
   }
 
   // -------------------------------------------------------------------------
@@ -490,15 +573,28 @@
       primary();
       return;
     }
+    if (e.key === "Escape" && thinking) {
+      e.preventDefault();
+      cancel();
+      return;
+    }
     if (typing || mode === "ask") return;
     if (phase.p === "quiz" && phase.stage === "answer" && currentQ && isMcq(currentQ)) {
       const n = Number(e.key);
+      const conf = CONFIDENCE.find(([, , key]) => key === e.key.toLowerCase());
       if (n >= 1 && n <= currentQ.options.length) {
         choice = n - 1;
         e.preventDefault();
         e.stopPropagation();
+      } else if (conf) {
+        setConfidence(conf[0]);
+        e.preventDefault();
+        e.stopPropagation();
       } else if (e.key === "Enter" && choice !== null) {
         e.preventDefault();
+        // Enter on a focused option or confidence radio picks it first, so the submit uses what's focused.
+        const t = e.target as HTMLElement | null;
+        if (t?.getAttribute("role") === "radio" && rootEl?.contains(t)) t.click();
         submitAnswer();
       }
     } else if (e.key === "Enter" && (phase.p === "explained" || (phase.p === "quiz" && (phase.stage === "graded" || phase.stage === "checked")))) {
@@ -507,16 +603,64 @@
     }
   }
 
-  function end() {
-    store.endSession();
+  const CONFIDENCE: [Confidence, string, string][] = [
+    ["guess", "Guessing", "g"],
+    ["unsure", "Unsure", "u"],
+    ["sure", "Confident", "c"],
+  ];
+
+  function setConfidence(c: Confidence) {
+    confidence = c;
+    needConfidence = false;
   }
+
+  /** Arrow keys move between the confidence options, like native radios. */
+  function confidenceKey(e: KeyboardEvent) {
+    const dir = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+    if (!dir) return;
+    e.preventDefault();
+    e.stopPropagation();
+    // currentTarget is null once the event has finished dispatching, so take it now.
+    const group = e.currentTarget as HTMLElement;
+    const i = CONFIDENCE.findIndex(([id]) => id === confidence);
+    const next = CONFIDENCE[(i + dir + CONFIDENCE.length) % CONFIDENCE.length][0];
+    setConfidence(next);
+    void tick().then(() => group.querySelector<HTMLElement>("[aria-checked=true]")?.focus());
+  }
+
+  function end() {
+    if (phase.p === "done") store.endSession();
+    else void store.requestEnd();
+  }
+
+  const live = {
+    unfinished: () => phase.p !== "done" && (stepIdx > 0 || msgs.some((m) => m.kind === "me") || !!draft.trim() || !!ask.trim()),
+    describe: () => {
+      const answered = msgs.filter((m) => m.kind === "me").length;
+      return `You're on step ${Math.min(stepIdx + 1, steps.length)} of ${steps.length}` + (answered ? ` with ${answered} answer${answered > 1 ? "s" : ""} so far` : "");
+    },
+    addExplain: (conceptId: number) => {
+      if (phase.p === "done") {
+        steps.push({ kind: "explain", conceptId });
+        startStep(steps.length - 1);
+      } else insertSteps({ kind: "explain", conceptId });
+    },
+  };
 
   onMount(() => {
     store.primaryHandlers.session = primary;
+    store.session = live;
     startStep(0);
     return () => {
+      request?.abort();
       if (store.primaryHandlers.session === primary) delete store.primaryHandlers.session;
+      if (store.session === live) store.session = null;
     };
+  });
+
+  // Keep an unsent explanation if the view closes.
+  $effect(() => {
+    if (phase.p === "explain") saveDraft(obsidianApp(), `explain:${phase.conceptId}`, draft);
   });
 
   // Remember what we were doing while a request is in flight (for Ask context).
@@ -525,8 +669,28 @@
   });
 
   const explainPhase = $derived(phase.p === "explain" ? phase : null);
+  /** Clawd's latest "your turn" / stretch question for the concept being explained. */
+  const turnPrompt = $derived.by(() => {
+    if (!explainPhase || explainPhase.attempt === 0) return "";
+    const fb = msgs.findLast((m) => m.kind === "feedback" && m.conceptId === explainPhase.conceptId);
+    // After a pass, next_prompt is a stretch question, not what "explain once more" asks for.
+    return fb?.kind === "feedback" && !fb.ev.passed ? fb.ev.next_prompt.trim() : "";
+  });
   const canAsk = $derived(phase.p !== "done");
   const isLast = $derived(stepIdx >= steps.length - 1);
+  const stepLabel = $derived.by(() => {
+    if (phase.p === "done") return "Done";
+    const s = steps[stepIdx];
+    if (!s) return "";
+    return `Step ${stepIdx + 1} of ${steps.length} · ${s.kind === "explain" ? "Explain" : "Quiz"}`;
+  });
+  /** Concepts this session touched, with mastery before and now. */
+  const progressRows = $derived(
+    touched
+      .map((id) => ({ c: store.concept(id), from: before.get(id) ?? 0 }))
+      .filter((r): r is { c: NonNullable<typeof r.c>; from: number } => !!r.c && !!r.c.last_reviewed),
+  );
+  const shaky = $derived(progressRows.filter((r) => masteryLevel(r.c) === "shaky").map((r) => r.c.id));
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
@@ -535,9 +699,11 @@
   <header class="top">
     <div class="title">
       <h2>{plan.title}</h2>
-      <div class="steps" aria-label="Session progress">
+      <div class="steps" role="list" aria-label="Session progress">
         {#each steps as s, i}
           <span
+            role="listitem"
+            aria-label={`${s.kind === "explain" ? `Explain: ${store.concept(s.conceptId)?.name ?? ""}` : `Quiz (${s.count} questions)`}${i < stepIdx || phase.p === "done" ? ", done" : i === stepIdx ? ", current" : ""}`}
             class="step"
             class:done={i < stepIdx || phase.p === "done"}
             class:now={i === stepIdx && phase.p !== "done"}
@@ -547,8 +713,13 @@
           </span>
         {/each}
       </div>
+      <span class="step-label faint small">{stepLabel}</span>
     </div>
-    <button class="btn ghost sm" onclick={end}>{phase.p === "done" ? "Close" : "End session"}</button>
+    <div class="top-actions">
+      <div class="ct-composer-settings wide-only"><ModelPicker /></div>
+      <span class="narrow-only"><ModelPicker compact /></span>
+      <button class="btn ghost sm" onclick={end}>{phase.p === "done" ? "Close" : "End session"}</button>
+    </div>
   </header>
 
   <div class="thread" bind:this={threadEl}>
@@ -569,7 +740,7 @@
             <div class="avatar">
               <Clawd mood={m.id === lastClawd && !thinking ? store.liveMood : m.mood} size={40} animate={m.id === lastClawd && !thinking} follow={false} />
             </div>
-            <div class="bubble card" class:err={m.kind === "error"}>
+            <div class="bubble ct-card" class:err={m.kind === "error"}>
               {#if m.kind === "say"}
                 <Markdown md={m.md} />
                 {#if m.source}
@@ -630,7 +801,28 @@
                     <p class="sec-title">Quiz</p>
                     <p>{results.quiz.filter((r) => r.correct).length} of {results.quiz.length} correct</p>
                   {/if}
+                  {#if progressRows.length}
+                    <p class="sec-title">Mastery</p>
+                    <ul class="mastery">
+                      {#each progressRows as r (r.c.id)}
+                        {@const delta = Math.round((r.c.mastery - r.from) * 100)}
+                        <li>
+                          <Ring value={r.c.mastery} size={22} width={3} color={masteryColor(r.c)} />
+                          <span class="m-name"><Markdown md={r.c.name} inline /></span>
+                          <span class="small" class:up={delta > 0} class:down={delta < 0}>
+                            {Math.round(r.from * 100)}% → {Math.round(r.c.mastery * 100)}%
+                          </span>
+                          <span class="faint small">next review {relativeDue(r.c)}</span>
+                        </li>
+                      {/each}
+                    </ul>
+                  {/if}
                   <p class="muted small">Clawd scheduled your next reviews. Concepts you struggled with come back sooner.</p>
+                  {#if shaky.length}
+                    <button class="btn sm" onclick={() => store.startQuiz("Shaky concepts", shaky, Math.min(6, Math.max(3, shaky.length * 2)))}>
+                      <Icon name="zap" size={15} />Quiz the {shaky.length} shaky one{shaky.length > 1 ? "s" : ""} now
+                    </button>
+                  {/if}
                 </div>
               {/if}
             </div>
@@ -638,9 +830,10 @@
         {/if}
       {/each}
       {#if thinking}
-        <div class="clawd-row thinking-row">
+        <div class="clawd-row thinking-row" aria-live="polite">
           <div class="avatar"><Clawd mood="thinking" size={40} follow={false} /></div>
-          <div class="bubble card typing"><span></span><span></span><span></span></div>
+          <div class="bubble ct-card typing" aria-label="Clawd is thinking"><span></span><span></span><span></span></div>
+          {#if slow}<p class="slow faint small">Still thinking… long notes and higher effort take a little longer.</p>{/if}
         </div>
       {/if}
     </div>
@@ -655,28 +848,40 @@
         </div>
       {/if}
 
-      {#if mode === "ask" && canAsk}
+      {#if phase.p === "busy"}
+        {#if thinking}
+          <div class="busy-row">
+            <span class="muted small">{slow ? "Still thinking…" : "Clawd is thinking…"}</span>
+            <button class="btn sm" onclick={cancel} title="Stop this request (Esc)"><Icon name="x" size={14} />Cancel</button>
+          </div>
+        {:else}
+          <div class="busy-row">
+            <span class="muted small">Stopped before this step was ready.</span>
+            <span class="row-actions">
+              <button class="btn sm ghost" onclick={() => { stalled = null; continueSession(); }}>Skip this step</button>
+              <button class="btn sm" disabled={!stalled} onclick={() => { msgs = msgs.filter((x) => !(x.kind === "error" && x.id === lastClawd)); stalled?.(); }}><Icon name="retry" size={14} />Try again</button>
+            </span>
+          </div>
+        {/if}
+      {:else if mode === "ask" && canAsk}
         <form class="ask" onsubmit={(e) => { e.preventDefault(); sendAsk(); }} onpaste={onPaste} ondrop={onDrop} ondragover={(e) => e.preventDefault()}>
           <div class="ct-composer">
             {#if images.length}<div class="box-imgs"><Thumbs {images} onremove={(i) => (images = images.filter((_, j) => j !== i))} /></div>{/if}
-            <input
-              type="text"
+            <textarea
+              class="ask-input"
+              rows="1"
               bind:value={ask}
+              aria-label="Ask Clawd"
               placeholder="Ask anything, e.g. “why does that matter?” or “give me another example”"
-              disabled={phase.p === "busy"}
-            />
+              onkeydown={(e) => enterToSend(e, sendAsk)}
+            ></textarea>
             <div class="ct-composer-actions">
               <AttachButton bind:this={attacher} bind:images />
-              <SendButton label="Send message" type="submit" disabled={(!ask.trim() && !images.length) || phase.p === "busy"} />
+              <span class="ct-composer-hint">{SEND_HINT}</span>
+              <SendButton label="Send message" type="submit" disabled={!ask.trim() && !images.length} />
             </div>
           </div>
-          <div class="ct-composer-footer">
-            <span class="ct-composer-hint">Enter to send</span>
-            <div class="ct-composer-settings"><ModelPicker /></div>
-          </div>
         </form>
-      {:else if phase.p === "busy"}
-        <div class="box ct-composer disabled"><textarea rows="2" disabled placeholder="Clawd is thinking…"></textarea></div>
       {:else if explainPhase}
         {#if explainPhase.attempt >= 3}
           <p class="nudge">
@@ -684,16 +889,23 @@
             move on; it'll come back in a later review either way.
           </p>
         {/if}
+        {#if turnPrompt}
+          <p class="turn" id="turn-prompt"><Icon name="chat" size={14} /><span><b>Your turn:</b> <Markdown md={turnPrompt} inline /></span></p>
+        {/if}
         <div class="box ct-composer" onpaste={onPaste} ondrop={onDrop} ondragover={(e) => e.preventDefault()} role="group">
           {#if images.length}<div class="box-imgs"><Thumbs {images} onremove={(i) => (images = images.filter((_, j) => j !== i))} /></div>{/if}
           <textarea
             bind:this={inputEl}
             bind:value={draft}
             rows="2"
-            placeholder={explainPhase.attempt ? "Explain it again, fixing the gaps…" : "Your explanation, in your own words…"}
+            aria-label="Your explanation"
+            aria-describedby={turnPrompt ? "turn-prompt" : undefined}
+            placeholder={turnPrompt ? "Answer Clawd's prompt above…" : explainPhase.attempt ? "Explain it again, fixing the gaps…" : "Your explanation, in your own words…"}
+            onkeydown={(e) => enterToSend(e, () => submitExplain())}
           ></textarea>
           <div class="ct-composer-actions">
             <AttachButton bind:this={attacher} bind:images />
+            <span class="ct-composer-hint">{SEND_HINT}</span>
             <SendButton label={explainPhase.attempt ? "Explain again" : "Submit"} disabled={!draft.trim() && !images.length} onclick={() => submitExplain()} />
           </div>
         </div>
@@ -712,12 +924,9 @@
               ><Icon name="check" size={15} />{explainPhase.attempt ? "I understand now" : "I know this"}</button
             >
           </div>
-          <div class="ct-composer-settings"><ModelPicker /></div>
         </div>
       {:else if phase.p === "explained"}
         <div class="row-actions">
-          <ModelPicker />
-          <span class="spacer"></span>
           <button class="btn ghost" onclick={explainAgain}>Explain once more</button>
           <button class="btn primary lg" onclick={continueSession}>{isLast ? "Finish session" : "Continue"}<Icon name="arrow" size={16} /></button>
         </div>
@@ -726,35 +935,54 @@
           {#if !isMcq(currentQ)}
             <div class="box ct-composer" onpaste={onPaste} ondrop={onDrop} ondragover={(e) => e.preventDefault()} role="group">
               {#if images.length}<div class="box-imgs"><Thumbs {images} onremove={(i) => (images = images.filter((_, j) => j !== i))} /></div>{/if}
-              <textarea bind:this={inputEl} bind:value={draft} rows="2" placeholder="Your answer… (or attach a photo of your working)"></textarea>
+              <textarea
+                bind:this={inputEl}
+                bind:value={draft}
+                rows="2"
+                aria-label="Your answer"
+                placeholder="Your answer… (or attach a photo of your working)"
+                onkeydown={(e) => enterToSend(e, submitAnswer)}
+              ></textarea>
               <div class="ct-composer-actions">
                 <AttachButton bind:this={attacher} bind:images />
+                <span class="ct-composer-hint">{SEND_HINT}</span>
                 <SendButton label="Submit" disabled={!draft.trim() && !images.length} onclick={submitAnswer} />
               </div>
             </div>
           {/if}
           <div class="ct-composer-footer">
-            <div class="conf" role="radiogroup" aria-label="How sure are you?">
-              <span class="faint small">How sure?</span>
-              {#each [["guess", "Guessing"], ["unsure", "Unsure"], ["sure", "Confident"]] as [id, label]}
-                <button class:sel={confidence === id} onclick={() => (confidence = id as Confidence)}>{label}</button>
+            <span class="faint small" id="conf-label">How sure?</span>
+            <div class="conf" class:need={needConfidence} role="radiogroup" aria-labelledby="conf-label" tabindex="-1" onkeydown={confidenceKey}>
+              {#each CONFIDENCE as [id, label, key], i}
+                <button
+                  role="radio"
+                  aria-checked={confidence === id}
+                  tabindex={confidence === id || (!confidence && i === 0) ? 0 : -1}
+                  class:sel={confidence === id}
+                  onclick={() => setConfidence(id)}
+                  >{label}{#if isMcq(currentQ)}<kbd>{key.toUpperCase()}</kbd>{/if}</button
+                >
               {/each}
             </div>
+            {#if needConfidence}<span class="need-text small" role="status">Pick one to submit</span>{/if}
             {#if isMcq(currentQ)}
               <SendButton label="Submit" disabled={choice === null} onclick={submitAnswer} />
-            {:else}
-              <div class="ct-composer-settings"><ModelPicker /></div>
             {/if}
           </div>
-          {#if isMcq(currentQ)}
-            <div class="ct-composer-footer"><div class="ct-composer-settings"><ModelPicker /></div></div>
-          {/if}
         {:else if phase.stage === "check"}
           <div class="box ct-composer" onpaste={onPaste} ondrop={onDrop} ondragover={(e) => e.preventDefault()} role="group">
             {#if images.length}<div class="box-imgs"><Thumbs {images} onremove={(i) => (images = images.filter((_, j) => j !== i))} /></div>{/if}
-            <textarea bind:this={inputEl} bind:value={draft} rows="2" placeholder="Answer the quick check…"></textarea>
+            <textarea
+              bind:this={inputEl}
+              bind:value={draft}
+              rows="2"
+              aria-label="Your answer to the quick check"
+              placeholder="Answer the quick check…"
+              onkeydown={(e) => enterToSend(e, submitCheck)}
+            ></textarea>
             <div class="ct-composer-actions">
               <AttachButton bind:this={attacher} bind:images />
+              <span class="ct-composer-hint">{SEND_HINT}</span>
               <SendButton label="Check" disabled={!draft.trim() && !images.length} onclick={submitCheck} />
             </div>
           </div>
@@ -764,7 +992,6 @@
                 ><Icon name="check" size={15} />I understand, next</button
               >
             </div>
-            <div class="ct-composer-settings"><ModelPicker /></div>
           </div>
         {:else}
           <div class="row-actions">
@@ -997,11 +1224,64 @@
     background: var(--surface-2);
     color: var(--text);
   }
-  .box.disabled {
-    opacity: 0.6;
+  .turn {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    margin: 0 4px 8px;
+    padding: 8px 12px;
+    border-left: 3px solid var(--accent);
+    background: var(--accent-soft);
+    border-radius: 0 var(--r-sm) var(--r-sm) 0;
+    font-size: 0.9em;
+    max-height: 6.5em;
+    overflow-y: auto;
   }
-  .spacer {
+  .turn :global(svg) {
+    flex: none;
+    margin-top: 3px;
+    color: var(--accent);
+  }
+  .busy-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    border: 1px dashed var(--border-strong);
+    border-radius: 16px;
+  }
+  .thinking-row {
+    flex-wrap: wrap;
+  }
+  .slow {
+    flex-basis: 100%;
+    padding-left: 54px;
+  }
+  .top-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+  }
+  .step-label {
+    white-space: nowrap;
+  }
+  .mastery li {
+    flex-wrap: wrap;
+  }
+  .m-name {
     flex: 1;
+    min-width: 0;
+  }
+  .up {
+    color: var(--good);
+  }
+  .down {
+    color: var(--bad);
+  }
+  .need-text {
+    color: var(--bad);
   }
   .row-actions {
     display: flex;
@@ -1015,10 +1295,15 @@
     gap: 4px;
     flex-wrap: wrap;
   }
-  .conf .faint {
-    margin-right: 4px;
+  .conf.need {
+    outline: 2px solid var(--bad-soft);
+    outline-offset: 3px;
+    border-radius: 99px;
   }
   .conf button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     border: 1px solid var(--border);
     background: none;
     border-radius: 99px;
@@ -1031,6 +1316,18 @@
     border-color: var(--accent);
     background: var(--accent-soft);
     color: var(--text);
+  }
+  .narrow-only {
+    display: none;
+  }
+  @container (max-width: 560px) {
+    .step-label,
+    .wide-only {
+      display: none;
+    }
+    .narrow-only {
+      display: inline-flex;
+    }
   }
   @keyframes rise {
     from {

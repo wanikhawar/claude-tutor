@@ -14,6 +14,16 @@
   const minutes = $derived(explainCount * 4 + quizCount);
   const mastered = $derived(store.concepts.filter((c) => c.mastery >= 0.8).length);
   const ready = $derived(store.concepts.length > 0);
+  const caughtUp = $derived(ready && !due.length);
+  const activity = $derived(store.snap?.activity ?? []);
+  const peak = $derived(Math.max(1, ...activity));
+  const streak = $derived(store.snap?.streak ?? 0);
+  const DAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  function dayName(i: number) {
+    const d = new Date();
+    d.setDate(d.getDate() - (activity.length - 1 - i));
+    return i === activity.length - 1 ? "Today" : DAY[d.getDay()];
+  }
   const summary = $derived(
     [
       explainCount && `Explain ${explainCount} concept${explainCount > 1 ? "s" : ""} in your own words`,
@@ -40,6 +50,10 @@
       e.preventDefault();
       e.stopPropagation();
       store.quickQuiz();
+    } else if (e.key.toLowerCase() === "e") {
+      e.preventDefault();
+      e.stopPropagation();
+      store.pickConcept();
     }
   }
 
@@ -69,7 +83,7 @@
   </section>
 
   {#if store.confirmCount}
-    <section class="card confirm">
+    <section class="ct-card confirm">
       <div>
         <h3>Read {store.confirmCount} notes?</h3>
         <p class="muted small">
@@ -85,7 +99,7 @@
   {/if}
 
   {#if store.indexing && !ready}
-    <section class="card reading">
+    <section class="ct-card reading">
       <Clawd mood="thinking" size={56} follow={false} />
       <div>
         <h3>Clawd is reading your notes</h3>
@@ -95,34 +109,42 @@
     </section>
   {/if}
 
-  <section class="card primary-card">
+  <section class="ct-card primary-card">
     <div>
       <h2>{due.length ? "Ready for today's session" : ready ? "You're all caught up" : "Getting ready…"}</h2>
       <p class="muted">
         {#if !ready}
           Clawd needs to read your notes before the first session.
+        {:else if caughtUp && plan.length}
+          Nothing is due. Want to get ahead on your weakest concepts? {summary}
+        {:else if caughtUp}
+          Nothing is due. Try Teach to learn something new.
         {:else if plan.length}
           {summary}
         {/if}
       </p>
     </div>
-    <button class="btn primary lg" disabled={!ready} onclick={() => store.startStudy()}>
-      <Icon name="play" size={16} />Start studying<kbd>Enter</kbd>
-    </button>
+    {#if caughtUp && !plan.length}
+      <button class="btn primary lg" onclick={() => (store.view = { name: "teach" })}><Icon name="sparkles" size={16} />Learn something new</button>
+    {:else}
+      <button class="btn primary lg" disabled={!ready} onclick={() => store.startStudy()}>
+        <Icon name="play" size={16} />{caughtUp ? "Review ahead" : "Start studying"}<kbd>Enter</kbd>
+      </button>
+    {/if}
   </section>
 
   <section class="quick">
-    <button class="tile card" disabled={!ready} onclick={() => (store.view = { name: "library" })}>
+    <button class="tile ct-card" disabled={!ready} onclick={() => store.pickConcept()}>
       <span class="ti" style="color: var(--accent)"><Icon name="brain" /></span>
-      <b>Explain a concept</b>
-      <small>Pick any concept from your library</small>
+      <b>Explain a concept <kbd>E</kbd></b>
+      <small>Search all {store.concepts.length} concepts</small>
     </button>
-    <button class="tile card" disabled={!ready} onclick={() => store.quickQuiz()}>
+    <button class="tile ct-card" disabled={!ready} onclick={() => store.quickQuiz()}>
       <span class="ti" style="color: var(--violet)"><Icon name="zap" /></span>
       <b>Quick quiz <kbd>Q</kbd></b>
       <small>5 questions on what's due</small>
     </button>
-    <button class="tile card" disabled={!store.mistakes.length} onclick={() => store.mistakesQuiz()}>
+    <button class="tile ct-card" disabled={!store.mistakes.length} onclick={() => store.mistakesQuiz()}>
       <span class="ti" style="color: var(--bad)"><Icon name="target" /></span>
       <b>Fix my mistakes</b>
       <small>{store.mistakes.length ? `${store.mistakes.length} misconception${store.mistakes.length > 1 ? "s" : ""} to clear` : "Nothing to fix yet"}</small>
@@ -133,13 +155,25 @@
     <div><b>{due.length}</b><span>due</span></div>
     <div><b style="color: var(--good)">{mastered}</b><span>solid</span></div>
     <div><b>{store.concepts.length}</b><span>concepts</span></div>
-    <div><b>{store.snap?.reviews_today ?? 0}</b><span>reviews today</span></div>
+    <div title="Days in a row with at least one review">
+      <b style:color={streak ? "var(--accent)" : undefined}>{streak}</b><span>day streak</span>
+    </div>
+    {#if activity.length}
+      <div class="week" role="img" aria-label="Reviews over the last 7 days: {activity.map((n, i) => `${dayName(i)} ${n}`).join(', ')}">
+        {#each activity as n, i}
+          <span class="day" class:today={i === activity.length - 1} title="{dayName(i)}: {n} review{n === 1 ? '' : 's'}">
+            <span class="fill" style:height="{n ? Math.max(12, (n / peak) * 100) : 0}%"></span>
+          </span>
+        {/each}
+        <span class="week-label">7 days</span>
+      </div>
+    {/if}
   </section>
 
   {#if due.length}
     <section>
       <h3 class="section-title">Up next</h3>
-      <div class="card list">
+      <div class="ct-card list">
         {#each due.slice(0, 8) as c (c.id)}
           <button class="row" onclick={() => store.startExplain(c.id)}>
             <Ring value={c.mastery} size={18} width={3} color={masteryColor(c)} empty={isNew(c)} />
@@ -288,6 +322,36 @@
   .stats span {
     color: var(--text-2);
     font-size: 0.88rem;
+  }
+  .week {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 24px;
+    margin-left: auto;
+  }
+  .day {
+    width: 7px;
+    height: 100%;
+    border-radius: 2px;
+    background: var(--surface-2);
+    display: flex;
+    align-items: flex-end;
+    overflow: hidden;
+  }
+  .fill {
+    width: 100%;
+    background: var(--text-3);
+    border-radius: 2px;
+  }
+  .day.today .fill {
+    background: var(--accent);
+  }
+  .stats .week-label {
+    font-size: 0.75rem;
+    color: var(--text-3);
+    margin-left: 4px;
+    align-self: center;
   }
   .section-title {
     margin: 4px 4px 10px;

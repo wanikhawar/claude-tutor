@@ -96,6 +96,8 @@ export interface FeynmanInput {
   peeked: boolean;
   stuck: boolean;
   images?: ImageInput[];
+  /** Clawd's last "your turn" prompt, which this attempt may be answering. */
+  followUp?: string;
 }
 
 export function evaluateFeynman(c: ClaudeOptions, i: FeynmanInput): Promise<FeynmanEval> {
@@ -135,7 +137,9 @@ export function evaluateFeynman(c: ClaudeOptions, i: FeynmanInput): Promise<Feyn
         i.peeked ? "\nNote: the learner peeked at their note excerpt before this attempt." : ""
       }`;
   const prompt = `Concept: **${i.concept.name}**
-The learner was asked: "${i.question || `Explain ${i.concept.name}`}"
+The learner was asked: "${i.question || `Explain ${i.concept.name}`}"${
+    i.followUp?.trim() ? `\nAfter the last attempt you prompted them: "${i.followUp.trim()}". This attempt may answer that prompt.` : ""
+  }
 Judge their explanation as an answer to that question (the core of this concept), not as a summary of the whole note.
 Summary (from indexing): ${i.concept.summary}
 Prerequisites: ${i.concept.prerequisites.length ? i.concept.prerequisites.join(", ") : "none"}

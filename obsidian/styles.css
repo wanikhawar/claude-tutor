@@ -169,7 +169,7 @@
   opacity: 0.6;
 }
 
-.ct-root .card {
+.ct-root .ct-card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
@@ -464,4 +464,28 @@
   font-size: 0.8em;
   color: var(--text-faint);
   margin-left: 6px;
+}
+
+/* Composer: textareas grow with their content; the send hint sits beside the send button. */
+.ct-root .ct-composer textarea {
+  field-sizing: content;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.ct-root .ct-composer textarea.ask-input {
+  min-height: 44px;
+}
+.ct-root .ct-composer-actions .ct-composer-hint {
+  margin-left: auto;
+}
+.ct-root .ct-composer-actions .ct-composer-hint + .ct-send {
+  margin-left: 0;
+}
+@container (max-width: 420px) {
+  .ct-root .ct-composer-actions .ct-composer-hint {
+    display: none;
+  }
+  .ct-root .ct-composer-actions .ct-composer-hint + .ct-send {
+    margin-left: auto;
+  }
 }

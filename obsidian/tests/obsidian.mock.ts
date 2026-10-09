@@ -31,7 +31,9 @@ class MenuItem {
 }
 export class Menu {
   addItem(fn: (item: MenuItem) => void) { fn(new MenuItem()); return this; }
+  addSeparator() { return this; }
   showAtMouseEvent() {}
+  showAtPosition() {}
 }
 export const MarkdownRenderer = {
   async render(_app: unknown, text: string, target: HTMLElement) {

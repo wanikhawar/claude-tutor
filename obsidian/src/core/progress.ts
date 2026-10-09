@@ -10,6 +10,8 @@ export interface Misconception {
   text: string;
   resolved: boolean;
   ts: string;
+  /** The question being answered when the misconception was spotted. */
+  source?: string;
 }
 
 interface Attempt {
@@ -153,19 +155,45 @@ export class Progress {
     this.changed();
   }
 
-  attemptsToday(): number {
-    const since = Date.now() - 86_400_000;
-    return this.data.attempts.filter((a) => new Date(a.ts).getTime() >= since).length;
+  /** Attempts per local calendar day for the last `days` days, oldest first (today last). */
+  activity(days = 7, now = new Date()): number[] {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1)).getTime();
+    const out = new Array<number>(days).fill(0);
+    for (const a of this.data.attempts) {
+      const d = new Date(a.ts);
+      const day = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() - start) / 86_400_000);
+      if (day >= 0 && day < days) out[day]++;
+    }
+    return out;
   }
 
-  addMisconception(conceptId: number | null, text: string): number {
+  /** Consecutive days with at least one attempt, ending today (or yesterday, if today has none yet). */
+  streak(now = new Date()): number {
+    const days = new Set(
+      this.data.attempts.map((a) => {
+        const d = new Date(a.ts);
+        return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+      }),
+    );
+    const key = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    const day = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (!days.has(key(day))) day.setDate(day.getDate() - 1);
+    let n = 0;
+    while (days.has(key(day))) {
+      n++;
+      day.setDate(day.getDate() - 1);
+    }
+    return n;
+  }
+
+  addMisconception(conceptId: number | null, text: string, source = ""): number {
     const cleaned = text.trim();
     const existing = this.data.misconceptions.find((m) =>
       !m.resolved && m.concept_id === conceptId && m.text.toLowerCase() === cleaned.toLowerCase(),
     );
     if (existing) return existing.id;
     const id = this.data.nextId++;
-    this.data.misconceptions.push({ id, concept_id: conceptId, text: cleaned, resolved: false, ts: new Date().toISOString() });
+    this.data.misconceptions.push({ id, concept_id: conceptId, text: cleaned, resolved: false, ts: new Date().toISOString(), source: source.trim() || undefined });
     this.changed();
     return id;
   }
@@ -178,6 +206,15 @@ export class Progress {
     const m = this.data.misconceptions.find((x) => x.id === id);
     if (m) {
       m.resolved = true;
+      this.changed();
+    }
+  }
+
+  /** Undo a resolve. */
+  reopenMisconception(id: number) {
+    const m = this.data.misconceptions.find((x) => x.id === id);
+    if (m?.resolved) {
+      m.resolved = false;
       this.changed();
     }
   }

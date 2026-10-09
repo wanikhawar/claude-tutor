@@ -1,5 +1,7 @@
 // Vault pickers for adding individual notes/PDFs or folders to the study library.
 import { FuzzySuggestModal, TFile, TFolder, type App, type FuzzyMatch } from "obsidian";
+import type { Concept } from "../../core/types";
+import { isDue, isNew } from "../../core/srs";
 
 export class NotePicker extends FuzzySuggestModal<TFile> {
   constructor(
@@ -84,5 +86,41 @@ export class ImagePicker extends FuzzySuggestModal<TFile> {
 
   onChooseItem(f: TFile) {
     this.onPick(f);
+  }
+}
+
+/** Search every concept in the library and pick one to explain. */
+export class ConceptPicker extends FuzzySuggestModal<Concept> {
+  constructor(
+    app: App,
+    private concepts: Concept[],
+    private noteTitle: (key: string) => string,
+    private onPick: (c: Concept) => void,
+  ) {
+    super(app);
+    this.setPlaceholder("Explain a concept…");
+    this.setInstructions([
+      { command: "↵", purpose: "explain it" },
+      { command: "esc", purpose: "close" },
+    ]);
+  }
+
+  getItems(): Concept[] {
+    // Due first, then weakest.
+    return [...this.concepts].sort((a, b) => Number(isDue(b)) - Number(isDue(a)) || a.mastery - b.mastery);
+  }
+
+  getItemText(c: Concept): string {
+    return `${c.name} · ${this.noteTitle(c.note_path)}`;
+  }
+
+  renderSuggestion(m: FuzzyMatch<Concept>, el: HTMLElement) {
+    super.renderSuggestion(m, el);
+    if (isNew(m.item)) el.createSpan({ text: " new", cls: "ct-suggest-tag" });
+    else if (isDue(m.item)) el.createSpan({ text: " due", cls: "ct-suggest-note" });
+  }
+
+  onChooseItem(c: Concept) {
+    this.onPick(c);
   }
 }

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushSync, mount, tick, unmount } from "svelte";
 import Session from "../src/ui/components/Session.svelte";
 import Teach from "../src/ui/components/Teach.svelte";
+import Library from "../src/ui/components/Library.svelte";
 import TopBar from "../src/ui/components/TopBar.svelte";
 import * as tutor from "../src/core/tutor";
 import { api, type FeynmanEval, type TeachReply } from "../src/ui/lib/api";
@@ -63,7 +64,7 @@ describe("session quiz controls", () => {
     target.querySelectorAll<HTMLButtonElement>(".opts button")[1].click();
     button("Ask Clawd").click();
     await settle();
-    const input = target.querySelector<HTMLInputElement>("form.ask input[type=text]")!;
+    const input = target.querySelector<HTMLTextAreaElement>("form.ask textarea")!;
     type(input, "Help me think through this");
     target.querySelector<HTMLButtonElement>("form.ask button[type=submit]")!.click();
     await settle();
@@ -76,9 +77,17 @@ describe("session quiz controls", () => {
     expect(options[1].classList.contains("sel")).toBe(true);
     options[0].click();
     await settle();
+    // Confidence has no default: submitting without one asks for it first.
+    button("Submit").click();
+    await settle();
+    expect(grade).not.toHaveBeenCalled();
+    expect(target.querySelector(".conf.need")).not.toBeNull();
+    target.querySelector<HTMLButtonElement>(".conf button[role=radio]")!.click();
+    await settle();
     button("Submit").click();
     await settle();
     expect(grade.mock.calls[0][1]).toBe(0);
+    expect(grade.mock.calls[0][3]).toBe("guess");
     button("Next question").click();
     await settle();
     const all = [...target.querySelectorAll<HTMLButtonElement>(".opts button")];
@@ -94,9 +103,10 @@ describe("session quiz controls", () => {
     await settle();
     button("Ask Clawd").click();
     await settle();
-    const input = target.querySelector<HTMLInputElement>("form.ask input[type=text]")!;
+    const input = target.querySelector<HTMLTextAreaElement>("form.ask textarea")!;
     type(input, "My unsent draft");
-    const utilities = [...target.querySelectorAll<HTMLButtonElement>("form.ask button.pick, form.ask button.attach")];
+    // Model and effort live in the session header; attach stays in the composer.
+    const utilities = [...target.querySelectorAll<HTMLButtonElement>(".top button.pick, form.ask button.attach")];
     expect(utilities).toHaveLength(3);
     for (const utility of utilities) {
       expect(utility.type).toBe("button");
@@ -168,7 +178,7 @@ describe("session explanations", () => {
     await settle();
     button("Ask Clawd").click();
     await settle();
-    type(target.querySelector<HTMLInputElement>("form.ask input[type=text]")!, "A question");
+    type(target.querySelector<HTMLTextAreaElement>("form.ask textarea")!, "A question");
     target.querySelector<HTMLButtonElement>("form.ask button[type=submit]")!.click();
     await settle();
     expect(button("Learn “Foundation” first").disabled).toBe(true);
@@ -264,6 +274,10 @@ describe("Teach lesson resets", () => {
     expect(button("New lesson").disabled).toBe(false);
     button("New lesson").click();
     await settle();
+    // A lesson in progress asks before it's cleared.
+    expect(store.dialog?.title).toBe("Start a new lesson?");
+    store.answer("new");
+    await settle();
     type(target.querySelector<HTMLTextAreaElement>("textarea")!, "New topic");
     button("Teach me").click();
     await settle();
@@ -287,6 +301,8 @@ describe("Teach lesson resets", () => {
     target.querySelector(".ct-composer")!.dispatchEvent(paste);
     button("New lesson").click();
     await settle();
+    store.answer("new");
+    await settle();
     prepared.resolve({ url: "blob:old", mediaType: "image/png", data: "eA==", name: "work.png" } as images.Img);
     await settle();
     expect(target.querySelector(".thumbs")).toBeNull();
@@ -309,5 +325,154 @@ describe("Teach lesson resets", () => {
     sources.resolve([]);
     await settle();
     expect(teach).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("session safety and composer", () => {
+  const fail: FeynmanEval = { score: 20, passed: false, got_right: [], gaps: [], reteach: "Again", analogy: "", next_prompt: "", note_issues: [], prerequisite_gap: "", mood: "encouraging", mascot_line: "Try again" };
+
+  it("asks before replacing a session in progress, and can add the concept to it instead", async () => {
+    const [first, second] = store.concepts;
+    store.startExplain(first.id);
+    const plan = store.plan!;
+    component = flushSync(() => mount(Session, { target, props: { plan } }));
+    await settle();
+    // Nothing done yet: switching is silent.
+    expect(store.session?.unfinished()).toBe(false);
+    type(target.querySelector<HTMLTextAreaElement>("textarea")!, "Half an explanation");
+    expect(store.session?.unfinished()).toBe(true);
+
+    store.startExplain(second.id);
+    await settle();
+    expect(store.dialog?.choices.map((c) => c.id)).toEqual(["keep", "add", "new"]);
+    store.answer("keep");
+    await settle();
+    expect(store.plan).toBe(plan);
+
+    store.startExplain(second.id);
+    await settle();
+    store.answer("add");
+    await settle();
+    expect(store.plan).toBe(plan);
+    expect(target.querySelectorAll(".steps .step")).toHaveLength(2);
+
+    store.startExplain(second.id);
+    await settle();
+    store.answer("new");
+    await settle();
+    expect(store.plan).not.toBe(plan);
+  });
+
+  it("asks before ending a session with typed work", async () => {
+    const plan = { id: 1, title: "Study", steps: [{ kind: "explain" as const, conceptId: store.concepts[0].id }] };
+    store.plan = plan;
+    component = flushSync(() => mount(Session, { target, props: { plan } }));
+    await settle();
+    type(target.querySelector<HTMLTextAreaElement>("textarea")!, "Something");
+    button("End session").click();
+    await settle();
+    expect(store.dialog?.title).toBe("End this session?");
+    store.answer("keep");
+    await settle();
+    expect(store.plan?.id).toBe(1);
+  });
+
+  it("sends on Enter, adds a line on Shift+Enter", async () => {
+    const evaluate = vi.spyOn(api, "evaluateExplanation").mockResolvedValue(fail);
+    component = flushSync(() => mount(Session, { target, props: { plan: { id: 1, title: "S", steps: [{ kind: "explain", conceptId: store.concepts[0].id }] } } }));
+    await settle();
+    const box = target.querySelector<HTMLTextAreaElement>("textarea")!;
+    type(box, "Line one");
+    box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", shiftKey: true, bubbles: true, cancelable: true }));
+    await settle();
+    expect(evaluate).not.toHaveBeenCalled();
+    box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await settle();
+    expect(evaluate).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels a pending request and puts the explanation back to edit", async () => {
+    let signal: AbortSignal | undefined;
+    vi.spyOn(api, "evaluateExplanation").mockImplementation((a) => {
+      signal = a.signal;
+      return new Promise((_, reject) => a.signal?.addEventListener("abort", () => reject(new Error("Claude request cancelled."))));
+    });
+    component = flushSync(() => mount(Session, { target, props: { plan: { id: 1, title: "S", steps: [{ kind: "explain", conceptId: store.concepts[0].id }] } } }));
+    await settle();
+    type(target.querySelector<HTMLTextAreaElement>("textarea")!, "My careful explanation");
+    button("Submit").click();
+    await settle();
+    expect(target.querySelector(".mine")).not.toBeNull();
+    button("Cancel").click();
+    await settle();
+    expect(signal?.aborted).toBe(true);
+    expect(target.querySelector(".mine")).toBeNull();
+    expect(target.querySelector(".bubble.err")).toBeNull();
+    expect(target.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("My careful explanation");
+  });
+});
+
+describe("follow-ups", () => {
+  it("runs a toast's Undo action after dismissing it", () => {
+    const undo = vi.fn();
+    store.notify("Marked as resolved.", { label: "Undo", run: undo });
+    store.runToastAction();
+    expect(undo).toHaveBeenCalledTimes(1);
+    expect(store.toast).toBeNull();
+  });
+
+  it("does not ask again on Today after setup already showed the note count", async () => {
+    store.dispose();
+    const g = fixture(["a.md", "b.md", "c.md"]);
+    g.settings.confirmAbove = 1;
+    store.init(g.backend, () => g.settings, async () => {});
+    await store.refresh();
+    const read = vi.spyOn(api, "indexNote").mockImplementation(async () => ({ ...store.snap!, notes: store.snap!.notes.map((n) => ({ ...n, stale: false })) }));
+    await store.indexAll();
+    expect(store.confirmCount).toBe(3);
+    expect(read).not.toHaveBeenCalled();
+    await store.configure(["/"]);
+    await store.indexAll();
+    expect(store.confirmCount).toBeNull();
+    expect(read).toHaveBeenCalled();
+  });
+
+  it("pins Clawd's follow-up above the composer and sends it to the grader", async () => {
+    const fail: FeynmanEval = { score: 40, passed: false, got_right: [], gaps: [], reteach: "", analogy: "", next_prompt: "Now explain why it matters.", note_issues: [], prerequisite_gap: "", mood: "encouraging", mascot_line: "" };
+    const evaluate = vi.spyOn(api, "evaluateExplanation").mockResolvedValue(fail);
+    component = flushSync(() => mount(Session, { target, props: { plan: { id: 1, title: "S", steps: [{ kind: "explain", conceptId: store.concepts[0].id }] } } }));
+    await settle();
+    expect(target.querySelector(".turn")).toBeNull();
+    type(target.querySelector<HTMLTextAreaElement>("textarea")!, "First go");
+    button("Submit").click();
+    await settle();
+    expect(target.querySelector(".turn")?.textContent).toContain("Now explain why it matters.");
+    expect(evaluate.mock.calls[0][0].followUp).toBe("");
+    type(target.querySelector<HTMLTextAreaElement>("textarea")!, "Because…");
+    button("Explain again").click();
+    await settle();
+    expect(evaluate.mock.calls[1][0].followUp).toBe("Now explain why it matters.");
+  });
+
+  it("opens a concept's details in Library instead of starting a session", async () => {
+    const c = store.concepts[0];
+    component = flushSync(() => mount(Library, { target }));
+    await settle();
+    // Expand the note, then the concept.
+    target.querySelector<HTMLButtonElement>(".note-head")!.click();
+    await settle();
+    target.querySelector<HTMLButtonElement>("button.concept")!.click();
+    await settle();
+    expect(store.plan).toBeNull();
+    expect(target.querySelector(`#concept-${c.id}`)).not.toBeNull();
+    button("Explain it").click();
+    await settle();
+    expect(store.plan?.steps).toEqual([{ kind: "explain", conceptId: c.id }]);
+  });
+
+  it("offers a compact model menu for narrow panes", async () => {
+    component = flushSync(() => mount(Session, { target, props: { plan: { id: 1, title: "S", steps: [{ kind: "explain", conceptId: store.concepts[0].id }] } } }));
+    await settle();
+    expect(target.querySelector(".top .narrow-only button.pick-compact")).not.toBeNull();
   });
 });

@@ -1,6 +1,8 @@
 <script lang="ts">
-  import { store } from "../lib/store.svelte";
-  import { masteryColor } from "../lib/util";
+  import { onMount } from "svelte";
+  import { Menu } from "obsidian";
+  import { store, isDue } from "../lib/store.svelte";
+  import { masteryColor, masteryLevel, relativeDue, timeAgo } from "../lib/util";
   import Icon from "./Icon.svelte";
   import Ring from "./Ring.svelte";
   import Markdown from "./Markdown.svelte";
@@ -9,22 +11,65 @@
   type Item = { note: NoteInfo; concepts: Concept[] };
   type Row = { kind: "note"; id: string; item: Item } | { kind: "pdf"; id: string; title: string; parts: Item[] };
 
+  type Filter = "all" | "due" | "new" | "shaky" | "getting" | "solid";
+  type Sort = "notes" | "due" | "weakest";
+  const FILTERS: [Filter, string][] = [
+    ["all", "All"],
+    ["due", "Due"],
+    ["new", "New"],
+    ["shaky", "Shaky"],
+    ["getting", "Getting there"],
+    ["solid", "Solid"],
+  ];
+
   let query = $state("");
+  let filter = $state<Filter>("all");
+  let sort = $state<Sort>("notes");
   let open = $state<Record<string, boolean>>({});
   let openGroups = $state<Record<string, boolean>>({});
+  let searchEl = $state<HTMLInputElement>();
+  /** The concept whose details are open (one at a time). */
+  let detail = $state<number | null>(null);
 
+  // Focus search when you switch to the tab (not via autofocus, which can steal focus from the editor).
+  onMount(() => searchEl?.focus({ preventScroll: true }));
+
+  const level = masteryLevel;
+  function matches(c: Concept) {
+    if (filter === "all") return true;
+    if (filter === "due") return isDue(c);
+    return level(c) === filter;
+  }
+  const counts = $derived(
+    Object.fromEntries(
+      FILTERS.map(([f]) => [f, f === "all" ? store.concepts.length : store.concepts.filter((c) => (f === "due" ? isDue(c) : level(c) === f)).length]),
+    ) as Record<Filter, number>,
+  );
 
   const q = $derived(query.trim().toLowerCase());
+  /** Expand everything while searching or filtering, so matches are visible. */
+  const narrowed = $derived(!!q || filter !== "all");
   const groups = $derived(
     store.notes
       .map((n) => {
-        const concepts = store.concepts.filter((c) => c.note_path === n.key);
+        const concepts = store.concepts.filter((c) => c.note_path === n.key && matches(c));
         const noteHit = !q || n.title.toLowerCase().includes(q);
         const shown = noteHit ? concepts : concepts.filter((c) => c.name.toLowerCase().includes(q));
-        return { note: n, concepts: shown, visible: noteHit || shown.length > 0 };
+        const visible = filter === "all" ? noteHit || shown.length > 0 : shown.length > 0;
+        return { note: n, concepts: shown, visible };
       })
       .filter((g) => g.visible),
   );
+
+  /** Sort key for a row's concepts: lower comes first. */
+  function rank(cs: Concept[]): number {
+    if (sort === "due") {
+      const due = cs.filter((c) => isDue(c));
+      return due.length ? -due.length : 1;
+    }
+    const seen = cs.filter((c) => c.last_reviewed);
+    return seen.length ? Math.min(...seen.map((c) => c.mastery)) : 2;
+  }
   // Parts of a split PDF are listed under one entry for the file.
   const rows = $derived.by(() => {
     const out: Row[] = [];
@@ -43,7 +88,12 @@
       }
       row.parts.push(g);
     }
-    return out;
+    if (sort === "notes") return out;
+    const all = (r: Row) => (r.kind === "pdf" ? r.parts.flatMap((p) => p.concepts) : r.item.concepts);
+    return out
+      .map((r, i) => ({ r, i, k: rank(all(r)) }))
+      .sort((a, b) => a.k - b.k || a.i - b.i)
+      .map((x) => x.r);
   });
   const skipped = $derived(store.snap?.skipped ?? []);
 
@@ -52,17 +102,28 @@
     const [a, b] = n.pages;
     return a === b ? `Page ${a}` : `Pages ${a}–${b}`;
   }
-  const activeConcept = $derived(
-    store.view.name === "session" && store.plan?.steps.length === 1 && store.plan.steps[0].kind === "explain"
-      ? store.plan.steps[0].conceptId
-      : null,
-  );
+  const activeConcept = $derived(store.plan ? store.currentConceptId : null);
+  const activeNote = $derived(activeConcept !== null ? store.concept(activeConcept)?.note_path : undefined);
+
+  function noteMenu(g: Item, e: MouseEvent) {
+    const menu = new Menu();
+    menu.addItem((i) => i.setTitle("Open note").setIcon("file-text").onClick(() => store.openNote(g.note.key)));
+    if (g.concepts.length) menu.addItem((i) => i.setTitle("Quiz me on this").setIcon("zap").onClick(() => store.noteQuiz(g.note.key)));
+    if (g.note.stale && !store.indexing) menu.addItem((i) => i.setTitle("Have Clawd read it now").setIcon("sparkles").onClick(() => void store.indexOne(g.note.key)));
+    if (e.type === "contextmenu" || e.detail > 0) menu.showAtMouseEvent(e);
+    else {
+      // Opened from the keyboard: anchor to the button.
+      const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      menu.showAtPosition({ x: r.left, y: r.bottom });
+    }
+    e.preventDefault();
+  }
 </script>
 
 {#snippet noteItem(g: Item, label: string)}
-  {@const expanded = open[g.note.key] ?? !!q}
-  <div class="note" class:current={false}>
-    <button class="note-head" onclick={() => (open[g.note.key] = !expanded)}>
+  {@const expanded = open[g.note.key] ?? (narrowed || activeNote === g.note.key)}
+  <div class="note" class:current={activeNote === g.note.key} oncontextmenu={(e) => noteMenu(g, e)} role="group" aria-label={label}>
+    <button class="note-head" aria-expanded={expanded} onclick={() => (open[g.note.key] = !expanded)}>
       <span class="chev" class:expanded><Icon name="right" size={14} /></span>
       <span class="title">{label}</span>
       {#if g.note.kind === "pdf" && !g.note.group}<span class="badge">PDF</span>{/if}
@@ -73,29 +134,33 @@
       {/if}
     </button>
     <div class="note-actions">
-      <button title="Open in Obsidian" aria-label="Open note" onclick={() => store.openNote(g.note.key)}
-        ><Icon name="book" size={15} /></button
-      >
-      {#if g.note.stale && !store.indexing}
-        <button title="Have Clawd read it now" aria-label="Read now" onclick={() => store.indexOne(g.note.key)}
-          ><Icon name="sparkles" size={15} /></button
-        >
-      {/if}
       {#if g.concepts.length}
-        <button title="Quiz me on this" aria-label="Quiz this" onclick={() => store.noteQuiz(g.note.key)}
-          ><Icon name="zap" size={15} /></button
-        >
+        <button class="quiz" title="Quiz me on this" onclick={() => store.noteQuiz(g.note.key)}><Icon name="zap" size={14} /><span>Quiz</span></button>
       {/if}
+      <button title="More actions" aria-label="More actions for {label}" aria-haspopup="menu" onclick={(e) => noteMenu(g, e)}
+        ><Icon name="more" size={16} /></button
+      >
     </div>
   </div>
   {#if expanded}
     <ul>
       {#each g.concepts as c (c.id)}
         <li>
-          <button class:active={activeConcept === c.id} title={c.summary} onclick={() => store.startExplain(c.id)}>
+          <button
+            class="concept"
+            class:active={activeConcept === c.id}
+            class:open={detail === c.id}
+            aria-current={activeConcept === c.id ? "step" : undefined}
+            aria-expanded={detail === c.id}
+            aria-controls="concept-{c.id}"
+            onclick={() => (detail = detail === c.id ? null : c.id)}
+          >
             <Ring value={c.mastery} size={14} width={2.5} color={masteryColor(c)} empty={!c.last_reviewed} />
             <span><Markdown md={c.name} inline /></span>
           </button>
+          {#if detail === c.id}
+            {@render conceptDetail(c)}
+          {/if}
         </li>
       {:else}
         <li class="empty">
@@ -109,10 +174,43 @@
   {/if}
 {/snippet}
 
+{#snippet conceptDetail(c: Concept)}
+  {@const mistakes = store.mistakes.filter((m) => m.concept_id === c.id)}
+  <div class="detail" id="concept-{c.id}">
+    {#if c.summary}<div class="d-summary"><Markdown md={c.summary} /></div>{/if}
+    {#if c.excerpt}<blockquote class="d-excerpt"><Markdown md={c.excerpt} /></blockquote>{/if}
+    <dl class="d-facts">
+      <div>
+        <dt>Mastery</dt>
+        <dd style:color={masteryColor(c)}>{c.last_reviewed ? `${Math.round(c.mastery * 100)}%` : "Not studied yet"}</dd>
+      </div>
+      {#if c.last_reviewed}
+        <div><dt>Last studied</dt><dd>{timeAgo(c.last_reviewed)}</dd></div>
+        <div><dt>Next review</dt><dd>{relativeDue(c)}</dd></div>
+      {/if}
+      {#if c.lapses}<div><dt>Forgotten</dt><dd>{c.lapses}×</dd></div>{/if}
+    </dl>
+    {#if c.prerequisites.length}
+      <p class="d-pre faint small">Builds on: {c.prerequisites.join(", ")}</p>
+    {/if}
+    {#if mistakes.length}
+      <div class="d-mistakes">
+        <p class="faint small">Open mistakes</p>
+        <ul>{#each mistakes as m (m.id)}<li><Icon name="alert" size={13} /><span><Markdown md={m.text} inline /></span></li>{/each}</ul>
+      </div>
+    {/if}
+    <div class="d-actions">
+      <button class="btn sm primary" onclick={() => store.startExplain(c.id)}><Icon name="brain" size={14} />Explain it</button>
+      <button class="btn sm" onclick={() => store.startQuiz(`Quiz: ${c.name}`, [c.id], 3)}><Icon name="zap" size={14} />Quiz me</button>
+      <button class="btn sm ghost" onclick={() => store.openNote(c.note_path)}><Icon name="book" size={14} />Open note</button>
+    </div>
+  </div>
+{/snippet}
+
 <aside class="library">
   <header class="head">
     <h2>Library</h2>
-    <p class="muted small">{store.notes.length} notes · {store.concepts.length} concepts · click a concept to explain it</p>
+    <p class="muted small">{store.notes.length} notes · {store.concepts.length} concepts · click a concept for details</p>
     <div class="sources">
       {#each store.snap?.sources.folders ?? [] as f (f)}
         <span class="src" title="Folder: {f}">
@@ -132,15 +230,26 @@
   </header>
   <div class="search">
     <Icon name="search" size={16} />
-    <!-- svelte-ignore a11y_autofocus -->
-    <input type="search" placeholder="Search notes & concepts" bind:value={query} autofocus />
+    <input type="search" placeholder="Search notes & concepts" aria-label="Search notes and concepts" bind:value={query} bind:this={searchEl} />
+    <select class="sort" aria-label="Sort notes" bind:value={sort}>
+      <option value="notes">Note order</option>
+      <option value="due">Most due first</option>
+      <option value="weakest">Weakest first</option>
+    </select>
+  </div>
+  <div class="filters" role="radiogroup" aria-label="Show concepts">
+    {#each FILTERS as [id, label] (id)}
+      <button role="radio" aria-checked={filter === id} class:sel={filter === id} disabled={id !== "all" && !counts[id]} onclick={() => (filter = id)}
+        >{label}<span class="fc">{counts[id]}</span></button
+      >
+    {/each}
   </div>
 
   <div class="list">
     {#each rows as r (r.id)}
       {#if r.kind === "pdf"}
-        {@const gOpen = openGroups[r.id] ?? (!!q || false)}
-        <button class="group-head" onclick={() => (openGroups[r.id] = !gOpen)}>
+        {@const gOpen = openGroups[r.id] ?? (narrowed || r.parts.some((p) => p.note.key === activeNote))}
+        <button class="group-head" aria-expanded={gOpen} onclick={() => (openGroups[r.id] = !gOpen)}>
           <span class="chev" class:expanded={gOpen}><Icon name="right" size={14} /></span>
           <span class="title">{r.title}</span>
           <span class="badge">PDF</span>
@@ -155,7 +264,11 @@
         {@render noteItem(r.item, r.item.note.title)}
       {/if}
     {:else}
-      <p class="none">{q ? `Nothing matches "${query}".` : "No readable notes yet."}</p>
+      <p class="none">
+        {#if q}Nothing matches "{query}"{filter !== "all" ? " with this filter" : ""}.
+        {:else if filter !== "all"}No {FILTERS.find(([f]) => f === filter)?.[1].toLowerCase()} concepts right now.
+        {:else}No readable notes yet.{/if}
+      </p>
     {/each}
   </div>
 
@@ -300,11 +413,65 @@
     border-radius: 99px;
   }
   .note-actions {
-    display: none;
-    padding-right: 4px;
-  }
-  .note:hover .note-actions {
     display: flex;
+    align-items: center;
+    gap: 2px;
+    padding-right: 4px;
+    opacity: 0.45;
+  }
+  .note:hover .note-actions,
+  .note:focus-within .note-actions,
+  .note.current .note-actions {
+    opacity: 1;
+  }
+  .note-actions .quiz {
+    gap: 4px;
+    align-items: center;
+    font-size: 0.8rem;
+    padding: 2px 8px;
+    display: none;
+  }
+  .note:hover .note-actions .quiz,
+  .note:focus-within .note-actions .quiz {
+    display: flex;
+  }
+  .note.current {
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+  .sort {
+    font-size: 0.82em;
+    background: transparent;
+    border: 0;
+    color: var(--text-2);
+    box-shadow: none;
+  }
+  .filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: -4px 12px 8px;
+  }
+  .filters button {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.8rem;
+    padding: 2px 10px;
+    border-radius: 99px;
+    border: 1px solid var(--border);
+    color: var(--text-2);
+  }
+  .filters button.sel {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--text);
+  }
+  .filters button:disabled {
+    opacity: 0.4;
+  }
+  .fc {
+    font-size: 0.85em;
+    color: var(--text-3);
   }
   .note-actions button {
     border: 0;
@@ -324,7 +491,7 @@
     margin: 0 0 6px;
     padding: 0 0 0 18px;
   }
-  li button {
+  li > button.concept {
     width: 100%;
     display: flex;
     align-items: center;
@@ -338,18 +505,70 @@
     font-size: 0.88rem;
     color: var(--text-2);
   }
-  li button:hover {
+  li > button.concept:hover,
+  li > button.concept.open {
     background: var(--surface-2);
     color: var(--text);
   }
-  li button.active {
+  li > button.concept.active {
     background: var(--accent-soft);
     color: var(--text);
   }
-  li button span {
+  li > button.concept span {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .detail {
+    margin: 2px 0 8px 8px;
+    padding: 10px 12px;
+    border-left: 2px solid var(--border-strong);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 0.86rem;
+  }
+  .d-excerpt {
+    margin: 0;
+    padding-left: 10px;
+    border-left: 3px solid var(--accent-soft);
+    color: var(--text-2);
+  }
+  .d-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    margin: 0;
+  }
+  .d-facts dt {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-3);
+  }
+  .d-facts dd {
+    margin: 0;
+    font-weight: 600;
+  }
+  .d-mistakes ul {
+    padding: 0;
+    margin: 4px 0 0;
+  }
+  .d-mistakes li {
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+    color: var(--text-2);
+  }
+  .d-mistakes li :global(svg) {
+    flex: none;
+    margin-top: 3px;
+    color: var(--warn);
+  }
+  .d-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
   }
   .empty,
   .none {

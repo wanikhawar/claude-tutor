@@ -14,7 +14,7 @@
   } = $props();
 </script>
 
-<button class="ct-send" {type} {disabled} {onclick} aria-label={label} title={`${label} · Ctrl/Cmd+Enter`}>
+<button class="ct-send" {type} {disabled} {onclick} aria-label={label} title={`${label} · Enter`}>
   <Icon name="up" size={20} />
   <span class="ct-sr-only">{label}</span>
 </button>

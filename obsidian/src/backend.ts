@@ -49,6 +49,10 @@ export interface Mistake {
   concept_id: number | null;
   concept_name: string | null;
   text: string;
+  /** When it was logged (ISO). */
+  ts: string;
+  /** The question being answered when Clawd spotted it, if known. */
+  source: string;
 }
 
 export interface Snapshot {
@@ -60,7 +64,10 @@ export interface Snapshot {
   skipped: Skipped[];
   concepts: Concept[];
   mistakes: Mistake[];
-  reviews_today: number;
+  /** Reviews per day for the last 7 days, oldest first. */
+  activity: number[];
+  /** Consecutive study days. */
+  streak: number;
   model: string;
   effort: string;
   /** Display names of the exact models, by alias (e.g. sonnet → "Sonnet 5.5"). */
@@ -186,8 +193,11 @@ export class Backend {
           concept_id: m.concept_id,
           concept_name: concepts.find((c) => c.id === m.concept_id)?.name ?? null,
           text: m.text,
+          ts: m.ts,
+          source: m.source ?? "",
         })),
-      reviews_today: this.progress.attemptsToday(),
+      activity: this.progress.activity(7),
+      streak: this.progress.streak(),
       model: s.model,
       effort: s.effort,
       modelNames: Object.fromEntries(MODEL_CHOICES.map((m) => [m.id, resolvedName(s, m.id)])),
@@ -292,10 +302,12 @@ export class Backend {
     peeked: boolean;
     stuck: boolean;
     images?: ImageInput[];
+    signal?: AbortSignal;
+    followUp?: string;
   }): Promise<FeynmanEval> {
     const concept = this.concept(a.conceptId);
     const [noteTitle, noteBody] = this.noteText(concept.note_path, NOTE_BUDGET);
-    const ev = await tutor.evaluateFeynman(this.claude(), {
+    const ev = await tutor.evaluateFeynman(this.claude(a.signal), {
       concept,
       question: a.question,
       noteTitle,
@@ -306,10 +318,11 @@ export class Backend {
       peeked: a.peeked,
       stuck: a.stuck,
       images: a.images,
+      followUp: a.followUp,
     });
     const score = Math.min(1, Math.max(0, ev.score / 100));
     this.progress.logAttempt(a.conceptId, "feynman", score);
-    for (const g of ev.gaps.filter((g) => g.kind === "wrong")) this.progress.addMisconception(a.conceptId, g.issue);
+    for (const g of ev.gaps.filter((g) => g.kind === "wrong")) this.progress.addMisconception(a.conceptId, g.issue, a.question);
     // Spaced repetition tracks first-try recall; peeking costs a little.
     if (a.attempt === 0) this.storeReview(concept, a.peeked ? score * 0.85 : score);
     return ev;
@@ -326,7 +339,7 @@ export class Backend {
     if (kind === "known") this.storeReview(c, 0.7);
   }
 
-  async makeQuiz(conceptIds: number[], count: number): Promise<QuizSet> {
+  async makeQuiz(conceptIds: number[], count: number, signal?: AbortSignal): Promise<QuizSet> {
     const pool = conceptIds
       .map((id) => this.progress.concept(id))
       .filter((c): c is Concept => !!c)
@@ -345,7 +358,7 @@ export class Backend {
       .openMisconceptions()
       .filter((m) => m.concept_id !== null && ids.has(m.concept_id))
       .slice(0, 10);
-    const quiz = await tutor.makeQuiz(this.claude(), materials, misc, Math.min(12, Math.max(1, count)));
+    const quiz = await tutor.makeQuiz(this.claude(signal), materials, misc, Math.min(12, Math.max(1, count)));
     for (const q of quiz.questions) {
       const concept = pool.find((c) => c.id === q.concept_id);
       if (!concept) throw new Error("Claude returned a question for a concept outside this quiz.");
@@ -363,6 +376,7 @@ export class Backend {
     answer: string,
     confidence: Confidence,
     images: ImageInput[] = [],
+    signal?: AbortSignal,
   ): Promise<GradeOutcome> {
     const concept = this.concept(question.concept_id);
     const target = this.progress.openMisconceptions().find((m) => m.id === question.misconception_id && m.concept_id === concept.id);
@@ -390,7 +404,7 @@ export class Backend {
       const context = `Concept: ${concept.name}\nSummary: ${concept.summary}\nKey excerpt: ${concept.excerpt}\n\nNote:\n${this.noteText(concept.note_path, 10_000)[1]}` +
         (target ? `\n\nMisconception being practised: ${target.text}` : "");
       const label = { guess: "just guessing", unsure: "somewhat unsure", sure: "confident" }[confidence];
-      grade = await tutor.grade(this.claude(), question, userAnswer, label, context, images, target);
+      grade = await tutor.grade(this.claude(signal), question, userAnswer, label, context, images, target);
     }
 
     if (grade.misconception_id !== null && (!Number.isInteger(grade.misconception_id) || grade.misconception_id !== target?.id)) {
@@ -404,7 +418,7 @@ export class Backend {
     if (target && grade.correct) this.progress.resolveMisconception(target.id);
     if (!grade.correct) {
       if (grade.misconception_id !== null) misconception_id = grade.misconception_id;
-      else if (grade.misconception.trim()) misconception_id = this.progress.addMisconception(concept.id, grade.misconception);
+      else if (grade.misconception.trim()) misconception_id = this.progress.addMisconception(concept.id, grade.misconception, question.question);
     }
     return { grade, misconception_id };
   }
@@ -416,9 +430,10 @@ export class Backend {
     answer: string;
     misconceptionId: number | null;
     images?: ImageInput[];
+    signal?: AbortSignal;
   }): Promise<CheckResult> {
     const original = this.progress.openMisconceptions().find((m) => m.id === a.misconceptionId);
-    const r = await tutor.check(this.claude(), a.question, a.key, original?.text ?? a.misconception, a.answer, a.images);
+    const r = await tutor.check(this.claude(a.signal), a.question, a.key, original?.text ?? a.misconception, a.answer, a.images);
     if (r.understood && a.misconceptionId !== null) this.progress.resolveMisconception(a.misconceptionId);
     return r;
   }
@@ -430,6 +445,7 @@ export class Backend {
     history: [boolean, string][],
     message: string,
     images: ImageInput[] = [],
+    signal?: AbortSignal,
   ): Promise<ChatReply> {
     const c = conceptId !== null ? this.progress.concept(conceptId) : undefined;
     let context: string;
@@ -442,7 +458,7 @@ export class Backend {
         .map((x) => x.name);
       context = `${situation}\n\nConcepts in the learner's notes: ${names.join(", ")}`;
     }
-    return tutor.chat(this.claude(), context, history, message, images);
+    return tutor.chat(this.claude(signal), context, history, message, images);
   }
 
   // -------------------------------------------------------------------------
@@ -484,6 +500,7 @@ export class Backend {
     history: [boolean, string][],
     message: string,
     images: ImageInput[] = [],
+    signal?: AbortSignal,
   ): Promise<TeachReply> {
     const context = sources
       .map((k) => {
@@ -492,7 +509,7 @@ export class Backend {
       })
       .filter(Boolean)
       .join("\n\n");
-    return tutor.teach(this.claude(), topic, context, history, message, images);
+    return tutor.teach(this.claude(signal), topic, context, history, message, images);
   }
 
   /** Save a finished lesson as a note in the vault and open it. Returns its path. */
@@ -514,6 +531,11 @@ export class Backend {
 
   resolveMistake(id: number): Snapshot {
     this.progress.resolveMisconception(id);
+    return this.snapshot();
+  }
+
+  reopenMistake(id: number): Snapshot {
+    this.progress.reopenMisconception(id);
     return this.snapshot();
   }
 }

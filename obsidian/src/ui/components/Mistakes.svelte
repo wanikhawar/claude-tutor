@@ -1,14 +1,35 @@
 <script lang="ts">
   import { store } from "../lib/store.svelte";
-  import { api, errText } from "../lib/api";
+  import { api, errText, type Mistake } from "../lib/api";
+  import { timeAgo } from "../lib/util";
   import Clawd from "./Clawd.svelte";
   import Icon from "./Icon.svelte";
   import Markdown from "./Markdown.svelte";
+
+  /** Mistakes grouped by concept, in the order they were logged (newest first). */
+  const groups = $derived.by(() => {
+    const out: { id: number | null; name: string | null; items: Mistake[] }[] = [];
+    for (const m of store.mistakes) {
+      let g = out.find((x) => x.id === m.concept_id);
+      if (!g) out.push((g = { id: m.concept_id, name: m.concept_name, items: [] }));
+      g.items.push(m);
+    }
+    return out;
+  });
 
   async function resolve(id: number) {
     try {
       store.snap = await api.resolveMistake(id);
       store.say("proud", "One less misconception. Love to see it.");
+      store.notify("Marked as resolved.", { label: "Undo", run: () => void reopen(id) });
+    } catch (e) {
+      store.error = errText(e);
+    }
+  }
+
+  async function reopen(id: number) {
+    try {
+      store.snap = await api.reopenMistake(id);
     } catch (e) {
       store.error = errText(e);
     }
@@ -36,20 +57,29 @@
     </div>
   {:else}
     <div class="list">
-      {#each store.mistakes as m (m.id)}
-        <div class="card item">
-          <span class="mark"><Icon name="alert" size={18} /></span>
-          <div class="text">
-            <p><Markdown md={m.text} inline /></p>
-            {#if m.concept_name}<span class="chip"><Markdown md={m.concept_name} inline /></span>{/if}
-          </div>
-          <div class="acts">
-            {#if m.concept_id !== null}
-              <button class="btn sm" onclick={() => store.startExplain(m.concept_id!)}>Practice</button>
+      {#each groups as g (g.id)}
+        <section class="ct-card group" aria-label={g.name ?? "Other"}>
+          <header class="g-head">
+            <h3><Markdown md={g.name ?? "Other"} inline /></h3>
+            <span class="faint small">{g.items.length} open</span>
+            {#if g.id !== null}
+              <button class="btn sm" onclick={() => store.startExplain(g.id!)}>Practice</button>
             {/if}
-            <button class="btn sm ghost" title="Mark as resolved" onclick={() => resolve(m.id)}><Icon name="check" size={15} />Resolved</button>
-          </div>
-        </div>
+          </header>
+          {#each g.items as m (m.id)}
+            <div class="item">
+              <span class="mark"><Icon name="alert" size={18} /></span>
+              <div class="text">
+                <p><Markdown md={m.text} inline /></p>
+                <p class="meta faint small">
+                  {#if m.ts}<span title={new Date(m.ts).toLocaleString()}>Logged {timeAgo(m.ts)}</span>{/if}
+                  {#if m.source}<span class="src">· while answering “<Markdown md={m.source} inline />”</span>{/if}
+                </p>
+              </div>
+              <button class="btn sm ghost" title="Mark as resolved" onclick={() => resolve(m.id)}><Icon name="check" size={15} />Resolved</button>
+            </div>
+          {/each}
+        </section>
       {/each}
     </div>
   {/if}
@@ -78,11 +108,33 @@
     display: grid;
     gap: 10px;
   }
+  .group {
+    overflow: hidden;
+  }
+  .g-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    margin: 0;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: nowrap;
+  }
+  .g-head h3 {
+    flex: 1;
+    min-width: 0;
+  }
   .item {
     display: flex;
     gap: 14px;
     align-items: flex-start;
-    padding: 14px 16px;
+    padding: 12px 16px;
+  }
+  .item + .item {
+    border-top: 1px solid var(--border);
+  }
+  .meta {
+    margin-top: 4px;
   }
   .mark {
     color: var(--warn);
@@ -94,21 +146,6 @@
   }
   .text p {
     font-weight: 500;
-  }
-  .chip {
-    display: inline-block;
-    margin-top: 6px;
-    font-size: 0.78rem;
-    color: var(--text-2);
-    background: var(--surface-2);
-    padding: 2px 8px;
-    border-radius: 99px;
-  }
-  .acts {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-    justify-content: flex-end;
   }
   .empty {
     display: flex;

@@ -8,7 +8,8 @@ and you don't need an API key.
 What it does:
 
 - **Explain**: Feynman loop with a score, what you nailed, gaps (missing / wrong / jargon / vague), targeted re-teaching, an analogy, prerequisite drill-down, hints and "I'm stuck".
-- **Quiz**: multiple choice (keys <kbd>1</kbd>–<kbd>4</kbd>), short answer, explain-why and spot-the-error questions, with a confidence rating. Wrong answers get a diagnosed misconception, a mini-lesson and a new check question.
+- **Quiz**: multiple choice (keys <kbd>1</kbd>–<kbd>4</kbd>), short answer, explain-why and spot-the-error questions, with a confidence rating (keys <kbd>G</kbd> / <kbd>U</kbd> / <kbd>C</kbd>). Wrong answers get a diagnosed misconception, a mini-lesson and a new check question.
+- **Composers**: <kbd>Enter</kbd> sends, <kbd>Shift</kbd>+<kbd>Enter</kbd> adds a line, <kbd>Esc</kbd> cancels a reply that's taking too long. Unsent explanations survive closing the view.
 - **Ask Clawd** at any point, **spaced repetition** (SM-2) per concept, and a **Mistakes** log that quizzes keep targeting.
 - **PDFs**: text extraction (poppler `pdftotext`, falling back to Obsidian's built-in pdf.js), long PDFs split into page ranges, and page citations. Scanned PDFs are listed as unreadable.
 - **Math**: Claude writes all formulae as LaTeX (`$…$`, `$$…$$`), and everything is rendered with Obsidian's own Markdown renderer and MathJax, including quiz options, gaps and fixes. Formulas garbled by PDF extraction are written back as LaTeX.

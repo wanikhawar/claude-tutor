@@ -4,7 +4,7 @@ import type { TutorSettings } from "../../settings";
 import { isDue, isNew } from "../../core/srs";
 import { Notice } from "obsidian";
 import { api, errText, obsidianApp, setBackend, type Concept, type Mood, type Snapshot } from "./api";
-import { FolderPicker, NotePicker } from "./pickers";
+import { ConceptPicker, FolderPicker, NotePicker } from "./pickers";
 
 export { isDue, isNew };
 
@@ -14,6 +14,34 @@ export interface Plan {
   id: number;
   title: string;
   steps: Step[];
+}
+
+export interface Choice {
+  id: string;
+  label: string;
+  primary?: boolean;
+  danger?: boolean;
+}
+export interface Dialog {
+  title: string;
+  body: string;
+  choices: Choice[];
+  resolve: (id: string | null) => void;
+}
+export interface Toast {
+  id: number;
+  text: string;
+  action?: { label: string; run: () => void };
+}
+
+/** What the live study session exposes to the rest of the UI. */
+export interface LiveSession {
+  /** The learner has done something worth not throwing away. */
+  unfinished(): boolean;
+  /** e.g. "3 of 5 steps done". */
+  describe(): string;
+  /** Add an explain step right after the current one. */
+  addExplain(conceptId: number): void;
 }
 
 /** Moods that settle back to idle after a while. */
@@ -31,6 +59,12 @@ export class Store {
   /** Number of notes waiting for the user's OK before Clawd reads them all. */
   confirmCount = $state<number | null>(null);
   plan = $state<Plan | null>(null);
+  /** The concept the live session is on, for highlighting it elsewhere. */
+  currentConceptId = $state<number | null>(null);
+  /** A question waiting for the learner's answer (rendered by App). */
+  dialog = $state<Dialog | null>(null);
+  toast = $state<Toast | null>(null);
+  session: LiveSession | null = null;
   /** Each tab's main action (submit / continue / send), triggered by Ctrl/Cmd+Enter. */
   primaryHandlers: Partial<Record<View["name"], () => void>> = {};
 
@@ -55,6 +89,7 @@ export class Store {
   private failedReads = new Set<string>();
   private studyRequest = 0;
   private nextPlanId = 0;
+  private toastTimer: ReturnType<typeof setTimeout> | null = null;
 
   init(backend: Backend, settings: () => TutorSettings, saveSettings: () => Promise<void>) {
     this.dispose();
@@ -65,6 +100,7 @@ export class Store {
     this.indexError = null;
     this.confirmCount = null;
     this.plan = null;
+    this.currentConceptId = null;
     this.view = { name: "today" };
     this.approvedBulk = false;
     this.declinedBulk = false;
@@ -84,6 +120,11 @@ export class Store {
     this.unsubscribe = null;
     if (this.timer) clearTimeout(this.timer);
     if (this.ticker) clearInterval(this.ticker);
+    if (this.toastTimer) clearTimeout(this.toastTimer);
+    this.dialog?.resolve(null);
+    this.dialog = null;
+    this.toast = null;
+    this.session = null;
     this.timer = null;
     this.ticker = null;
     this.indexTask = null;
@@ -152,6 +193,40 @@ export class Store {
       max: "Maximum brainpower! This will be slower.",
     };
     this.say("proud", lines[effort] ?? `Effort: ${effort}.`);
+  }
+
+  // -------------------------------------------------------------------------
+  // Dialogs and toasts
+
+  /** Ask the learner to choose. Resolves to the chosen id, or null if dismissed. */
+  confirm(title: string, body: string, choices: Choice[]): Promise<string | null> {
+    this.dialog?.resolve(null);
+    return new Promise((resolve) => {
+      this.dialog = { title, body, choices, resolve };
+    });
+  }
+
+  answer(id: string | null) {
+    const d = this.dialog;
+    this.dialog = null;
+    d?.resolve(id);
+  }
+
+  notify(text: string, action?: Toast["action"], ms = 6_000) {
+    if (this.toastTimer) clearTimeout(this.toastTimer);
+    const id = (this.toast?.id ?? 0) + 1;
+    this.toast = { id, text, action };
+    this.toastTimer = setTimeout(() => {
+      if (this.toast?.id === id) this.toast = null;
+    }, ms);
+  }
+
+  /** Run the toast's action (e.g. Undo) and dismiss it. */
+  runToastAction() {
+    // Take the action before clearing: the toast is reactive state.
+    const action = this.toast?.action;
+    this.toast = null;
+    action?.run();
   }
 
   // -------------------------------------------------------------------------
@@ -305,6 +380,8 @@ export class Store {
   async configure(folders: string[]) {
     this.settings().studyFolders = folders;
     await this.saveSettings();
+    // Setup already showed how many notes this reads; don't ask again on Today.
+    this.approvedBulk = true;
     this.say("curious", "Great choice! Let me read your notes…");
     await api.rescan();
   }
@@ -444,33 +521,82 @@ export class Store {
     return steps;
   }
 
-  start(title: string, steps: Step[]) {
-    this.beginStudyRequest();
+  /**
+   * Start a new session. If one is under way, ask first: keep it, replace it, or
+   * (for a single concept) add the concept to it.
+   */
+  async start(title: string, steps: Step[], addable?: number) {
+    const request = this.beginStudyRequest();
     if (!steps.length) {
       this.say("confused", "I don't have any concepts for that yet.");
       return;
+    }
+    const live = this.plan && this.session?.unfinished() ? this.session : null;
+    if (live) {
+      const choices: Choice[] = [{ id: "keep", label: "Keep going" }];
+      if (addable !== undefined) choices.push({ id: "add", label: "Add to this session", primary: true });
+      choices.push({ id: "new", label: "Start new", danger: true, primary: addable === undefined });
+      const pick = await this.confirm(
+        "You're in the middle of a session",
+        `${live.describe()}. Starting “${title}” ends it; what you've answered so far is already saved.`,
+        choices,
+      );
+      if (!this.isCurrentStudyRequest(request) || this.session !== live) return;
+      if (pick === "add" && addable !== undefined) {
+        live.addExplain(addable);
+        this.view = { name: "session" };
+        this.say("happy", `Added “${this.concept(addable)?.name ?? "that"}” right after this step.`);
+        return;
+      }
+      if (pick !== "new") {
+        this.view = { name: "session" };
+        return;
+      }
     }
     this.plan = { id: ++this.nextPlanId, title, steps };
     this.view = { name: "session" };
   }
 
   startStudy() {
-    this.start("Study session", this.studyPlan());
+    void this.start("Study session", this.studyPlan());
   }
 
   endSession() {
     this.beginStudyRequest();
     this.plan = null;
+    this.currentConceptId = null;
     this.view = { name: "today" };
+  }
+
+  /** End the session, asking first if the learner would lose anything. */
+  async requestEnd() {
+    const live = this.session;
+    if (this.plan && live?.unfinished()) {
+      const pick = await this.confirm(
+        "End this session?",
+        `${live.describe()}. Your answers so far are saved, but the rest of the session (and anything you've typed) is dropped.`,
+        [
+          { id: "keep", label: "Keep going" },
+          { id: "end", label: "End session", danger: true, primary: true },
+        ],
+      );
+      if (pick !== "end" || this.session !== live) return;
+    }
+    this.endSession();
   }
 
   startExplain(conceptId: number) {
     const c = this.concept(conceptId);
-    this.start(c ? `Explain: ${c.name}` : "Explain", [{ kind: "explain", conceptId }]);
+    void this.start(c ? `Explain: ${c.name}` : "Explain", [{ kind: "explain", conceptId }], conceptId);
+  }
+
+  /** Search all concepts and explain the chosen one. */
+  pickConcept() {
+    new ConceptPicker(obsidianApp(), this.concepts, (k) => this.noteTitle(k), (c) => this.startExplain(c.id)).open();
   }
 
   startQuiz(title: string, conceptIds: number[], count = 5) {
-    this.start(title, conceptIds.length ? [{ kind: "quiz", conceptIds: shuffle(conceptIds).slice(0, 8), count }] : []);
+    void this.start(title, conceptIds.length ? [{ kind: "quiz", conceptIds: shuffle(conceptIds).slice(0, 8), count }] : []);
   }
 
   quickQuiz() {

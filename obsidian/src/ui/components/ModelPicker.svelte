@@ -1,16 +1,21 @@
-<!-- Model and effort switches shown in the composer. Use Obsidian's native menus. -->
+<!--
+  Model and effort switches. Use Obsidian's native menus.
+  `compact` is one icon button with both choices in a single menu, for narrow panes.
+-->
 <script lang="ts">
   import { Menu } from "obsidian";
   import { store } from "../lib/store.svelte";
   import { EFFORT_CHOICES, MODEL_CHOICES } from "../../settings";
+  import Icon from "./Icon.svelte";
+
+  let { compact = false }: { compact?: boolean } = $props();
 
   const model = $derived(store.snap?.model ?? "sonnet");
   const effort = $derived(store.snap?.effort ?? "");
   const names = $derived(store.snap?.modelNames ?? {});
   const effortName = $derived(EFFORT_CHOICES.find((e) => e.id === effort)?.name ?? effort);
 
-  function openModels(e: MouseEvent) {
-    const menu = new Menu();
+  function addModels(menu: Menu) {
     menu.addItem((i) => i.setTitle("Tutor model").setIsLabel(true));
     for (const m of MODEL_CHOICES) {
       menu.addItem((i) =>
@@ -20,11 +25,9 @@
           .onClick(() => void store.setModel(m.id)),
       );
     }
-    menu.showAtMouseEvent(e);
   }
 
-  function openEffort(e: MouseEvent) {
-    const menu = new Menu();
+  function addEffort(menu: Menu) {
     menu.addItem((i) => i.setTitle("Effort").setIsLabel(true));
     for (const x of EFFORT_CHOICES) {
       menu.addItem((i) =>
@@ -34,16 +37,41 @@
           .onClick(() => void store.setEffort(x.id)),
       );
     }
-    menu.showAtMouseEvent(e);
+  }
+
+  /** Open at the pointer, or under the button when opened from the keyboard. */
+  function show(menu: Menu, e: MouseEvent) {
+    if (e.detail > 0) return menu.showAtMouseEvent(e);
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    menu.showAtPosition({ x: r.left, y: r.bottom });
+  }
+
+  function open(e: MouseEvent, which: "model" | "effort" | "both") {
+    const menu = new Menu();
+    if (which !== "effort") addModels(menu);
+    if (which === "both") menu.addSeparator();
+    if (which !== "model") addEffort(menu);
+    show(menu, e);
   }
 </script>
 
-<button type="button" class="pick model" title="Change the tutor model" onclick={openModels}>
-  {names[model] ?? model}
-</button>
-<button type="button" class="pick" title="How hard Claude thinks" onclick={openEffort}>
-  {effort ? effortName : "Effort"}
-</button>
+{#if compact}
+  <button
+    type="button"
+    class="pick-compact"
+    aria-label="Model and effort: {names[model] ?? model}{effort ? `, ${effortName}` : ''}"
+    title="Model: {names[model] ?? model} · Effort: {effort ? effortName : 'default'}"
+    aria-haspopup="menu"
+    onclick={(e) => open(e, "both")}><Icon name="cpu" size={16} /></button
+  >
+{:else}
+  <button type="button" class="pick model" title="Change the tutor model" aria-haspopup="menu" onclick={(e) => open(e, "model")}>
+    {names[model] ?? model}
+  </button>
+  <button type="button" class="pick" title="How hard Claude thinks" aria-haspopup="menu" onclick={(e) => open(e, "effort")}>
+    {effort ? effortName : "Effort"}
+  </button>
+{/if}
 
 <style>
   .pick {
@@ -62,5 +90,18 @@
   }
   .model {
     color: var(--text);
+  }
+  .pick-compact {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    color: var(--text-2);
+  }
+  .pick-compact:hover {
+    color: var(--text);
+    background: var(--surface-2);
   }
 </style>

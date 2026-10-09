@@ -32,7 +32,7 @@
     explaining them back in your own words.
   </p>
 
-  <div class="picker card">
+  <div class="picker ct-card">
     <div class="search">
       <Icon name="search" size={16} />
       <input type="search" placeholder="Filter folders" bind:value={query} />
@@ -53,7 +53,7 @@
 
   <div class="go">
     <span class="muted small">
-      {#if total}{total} file{total > 1 ? "s" : ""} · Clawd reads each one once (one Claude request per note){/if}
+      {#if total}{total} file{total > 1 ? "s" : ""} · Clawd reads them all when you start (one Claude request per note){/if}
     </span>
     <button class="btn primary lg" disabled={!chosen.length} onclick={start}>Start learning<Icon name="arrow" size={16} /></button>
   </div>

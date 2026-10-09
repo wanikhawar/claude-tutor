@@ -30,6 +30,8 @@
 
   $effect(() => {
     if (!follow || !animate) return;
+    // Eyes that track the cursor are motion too.
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
     const move = (e: PointerEvent) => {
       if (!el) return;
       const r = el.getBoundingClientRect();
