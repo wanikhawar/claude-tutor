@@ -1,5 +1,7 @@
 # Claude Tutor for Obsidian
 
+![Claude Tutor: learn your notes by teaching them. Clawd scores your explanation and teaches from your notes in Obsidian's sidebar.](docs/images/hero.png)
+
 Learn the notes and PDFs in your vault with the **Feynman technique**. Your tutor is Clawd, a pixel tutor in glasses.
 You explain an idea in plain words; Clawd finds what's missing, wrong or hidden behind jargon, re-teaches just that,
 and quizzes you until it sticks. Claude runs through your **Claude Code login**, so your Pro/Max subscription works
@@ -22,6 +24,18 @@ What it does:
 - **Notes open in Obsidian.** Clicking a source opens the real note, or the PDF at its page, in a new tab.
 - **It looks like your theme.** Colours, fonts and light/dark mode follow Obsidian.
 - **Shortcuts stay in the tutor tab.** They only work while it's focused, so they don't clash with your hotkeys.
+
+## See it in action
+
+Every screenshot below is the real plugin running in Obsidian, graded live by Claude.
+
+![Explain: you explain a concept in your own words; Clawd gives a score, what you nailed, labelled gaps with fixes, targeted re-teaching and an analogy.](docs/images/feynman.png)
+
+![Quiz: multiple choice, short answer, explain-why and spot-the-error questions with a confidence rating; a confident wrong answer is diagnosed with a root cause.](docs/images/quiz.png)
+
+![The sidebar: Today, Teach, Library and Mistakes views.](docs/images/tour.png)
+
+![Meet Clawd: ten moods, and the tutor follows your Obsidian theme in light and dark mode.](docs/images/clawd.png)
 
 ## Requirements
 
