@@ -13,7 +13,7 @@
     "esbuild": "0.28.2",
     "esbuild-svelte": "0.9.5",
     "happy-dom": "20.14.5",
-    "obsidian": "1.13.1",
+    "obsidian": "1.14.4",
     "svelte": "5.57.2",
     "svelte-check": "4.7.6",
     "typescript": "6.0.3",
