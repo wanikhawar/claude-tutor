@@ -4,7 +4,7 @@ import { flushSync, mount, tick, unmount } from "svelte";
 import Session from "../src/ui/components/Session.svelte";
 import Teach from "../src/ui/components/Teach.svelte";
 import Library from "../src/ui/components/Library.svelte";
-import TopBar from "../src/ui/components/TopBar.svelte";
+import NavRail from "../src/ui/components/NavRail.svelte";
 import * as tutor from "../src/core/tutor";
 import { api, type FeynmanEval, type TeachReply } from "../src/ui/lib/api";
 import { store } from "../src/ui/lib/store.svelte";
@@ -244,7 +244,7 @@ it("retries the failed manual read from the banner with automatic re-reading dis
   f.progress.saveConcepts("a.md", "old-hash", [extracted()]);
   const extract = vi.spyOn(tutor, "extractConcepts").mockRejectedValueOnce(new Error("Temporary failure"))
     .mockResolvedValueOnce({ concepts: [extracted()] });
-  component = flushSync(() => mount(TopBar, { target }));
+  component = flushSync(() => mount(NavRail, { target }));
   expect(await store.indexOne("a.md")).toBe(false);
   await settle();
   target.querySelector<HTMLButtonElement>(".chip.bad")!.click();

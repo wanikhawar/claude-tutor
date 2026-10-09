@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import type { ItemView } from "obsidian";
   import { store } from "./lib/store.svelte";
-  import TopBar from "./components/TopBar.svelte";
+  import NavRail from "./components/NavRail.svelte";
   import Setup from "./components/Setup.svelte";
   import Today from "./components/Today.svelte";
   import Session from "./components/Session.svelte";
@@ -59,25 +59,27 @@
   {:else if !store.configured}
     <Setup />
   {:else}
-    <TopBar />
-    <main class="content">
-      <!-- Session and Teach stay mounted while you visit other tabs, so you don't lose your place. -->
-      {#if store.plan}
-        <div class="keep" class:hidden={store.view.name !== "session"}>
-          {#key store.plan.id}<Session plan={store.plan} />{/key}
-        </div>
-      {/if}
-      <div class="keep" class:hidden={store.view.name !== "teach"}><Teach /></div>
-      {#if store.view.name === "session" || store.view.name === "teach"}
-        <!-- shown above -->
-      {:else if store.view.name === "mistakes"}
-        <Mistakes />
-      {:else if store.view.name === "library"}
-        <Library />
-      {:else}
-        <Today />
-      {/if}
-    </main>
+    <div class="shell">
+      <NavRail />
+      <main class="content">
+        <!-- Session and Teach stay mounted while you visit other tabs, so you don't lose your place. -->
+        {#if store.plan}
+          <div class="keep" class:hidden={store.view.name !== "session"}>
+            {#key store.plan.id}<Session plan={store.plan} />{/key}
+          </div>
+        {/if}
+        <div class="keep" class:hidden={store.view.name !== "teach"}><Teach /></div>
+        {#if store.view.name === "session" || store.view.name === "teach"}
+          <!-- shown above -->
+        {:else if store.view.name === "mistakes"}
+          <Mistakes />
+        {:else if store.view.name === "library"}
+          <Library />
+        {:else}
+          <Today />
+        {/if}
+      </main>
+    </div>
   {/if}
 
   <div class="toasts">
@@ -141,10 +143,18 @@
     position: relative;
     container-type: inline-size;
   }
-  .content {
+  .shell {
     flex: 1;
     min-height: 0;
+    display: flex;
+  }
+  .content {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
     overflow: auto;
+    /* Pages size themselves to the space beside the rail. */
+    container-type: inline-size;
     display: flex;
     flex-direction: column;
   }
@@ -166,7 +176,7 @@
   .toasts {
     position: absolute;
     left: 50%;
-    top: 56px;
+    top: 12px;
     transform: translateX(-50%);
     z-index: 50;
     display: flex;

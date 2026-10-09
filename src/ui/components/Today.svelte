@@ -113,38 +113,6 @@
     </section>
   {/if}
 
-  {#if unread.length && !store.indexing}
-    <section class="ct-card pick">
-      <div>
-        <h3>Which notes should Clawd read?</h3>
-        <p class="muted small">
-          {unread.length} note{unread.length > 1 ? "s" : ""} in your library {unread.length > 1 ? "haven't" : "hasn't"} been
-          read yet. Clawd only reads the ones you tick (one Claude request each).
-        </p>
-      </div>
-      {#if unread.length > 8}
-        <div class="pick-search">
-          <Icon name="search" size={16} />
-          <input type="search" placeholder="Filter notes" bind:value={filterText} />
-        </div>
-      {/if}
-      <div class="pick-list">
-        {#each shownUnread as n (n.key)}
-          <label class="pick-row" class:sel={picked.includes(n.key)}>
-            <input type="checkbox" checked={picked.includes(n.key)} onchange={() => togglePick(n.key)} />
-            <Icon name="file" size={16} />
-            <span class="pick-title" title={n.rel}>{n.title}</span>
-          </label>
-        {/each}
-      </div>
-      <div class="confirm-actions">
-        <button class="btn primary" disabled={!pickedKeys.length} onclick={readPicked}>
-          Read {pickedKeys.length || ""} selected
-        </button>
-      </div>
-    </section>
-  {/if}
-
   {#if store.indexing && !ready}
     <section class="ct-card reading">
       <Clawd mood="thinking" size={56} follow={false} />
@@ -156,31 +124,30 @@
     </section>
   {/if}
 
-  <section class="ct-card primary-card">
-    <div>
-      <h2>{due.length ? "Ready for today's session" : ready ? "You're all caught up" : "Getting ready…"}</h2>
-      <p class="muted">
+  <!-- Start studying and the quick actions, side by side. -->
+  <section class="quick">
+    <div class="ct-card primary-card">
+      <span class="ti" style="color: var(--good)"><Icon name="sun" /></span>
+      <b>{due.length ? "Today's session" : ready ? "All caught up" : "Getting ready…"}</b>
+      <small>
         {#if !ready}
-          Pick at least one note for Clawd to read before your first session.
+          Pick at least one note for Clawd to read first.
         {:else if caughtUp && plan.length}
-          Nothing is due. Want to get ahead on your weakest concepts? {summary}
+          Nothing is due. Get ahead: {summary}
         {:else if caughtUp}
           Nothing is due. Try Teach to learn something new.
         {:else if plan.length}
           {summary}
         {/if}
-      </p>
+      </small>
+      {#if caughtUp && !plan.length}
+        <button class="btn primary" onclick={() => (store.view = { name: "teach" })}><Icon name="sparkles" size={15} />Learn something new</button>
+      {:else}
+        <button class="btn primary" disabled={!ready} onclick={() => store.startStudy()}>
+          <Icon name="play" size={15} />{caughtUp ? "Review ahead" : "Start studying"}<kbd>Enter</kbd>
+        </button>
+      {/if}
     </div>
-    {#if caughtUp && !plan.length}
-      <button class="btn primary lg" onclick={() => (store.view = { name: "teach" })}><Icon name="sparkles" size={16} />Learn something new</button>
-    {:else}
-      <button class="btn primary lg" disabled={!ready} onclick={() => store.startStudy()}>
-        <Icon name="play" size={16} />{caughtUp ? "Review ahead" : "Start studying"}<kbd>Enter</kbd>
-      </button>
-    {/if}
-  </section>
-
-  <section class="quick">
     <button class="tile ct-card" disabled={!ready} onclick={() => store.pickConcept()}>
       <span class="ti" style="color: var(--accent)"><Icon name="brain" /></span>
       <b>Explain a concept <kbd>E</kbd></b>
@@ -216,6 +183,38 @@
       </div>
     {/if}
   </section>
+
+  {#if unread.length && !store.indexing}
+    <section class="ct-card pick">
+      <div>
+        <h3>Which notes should Clawd read?</h3>
+        <p class="muted small">
+          {unread.length} note{unread.length > 1 ? "s" : ""} in your library {unread.length > 1 ? "haven't" : "hasn't"} been
+          read yet. Clawd only reads the ones you tick (one Claude request each).
+        </p>
+      </div>
+      {#if unread.length > 8}
+        <div class="pick-search">
+          <Icon name="search" size={16} />
+          <input type="search" placeholder="Filter notes" bind:value={filterText} />
+        </div>
+      {/if}
+      <div class="pick-list">
+        {#each shownUnread as n (n.key)}
+          <label class="pick-row" class:sel={picked.includes(n.key)}>
+            <input type="checkbox" checked={picked.includes(n.key)} onchange={() => togglePick(n.key)} />
+            <Icon name="file" size={16} />
+            <span class="pick-title" title={n.rel}>{n.title}</span>
+          </label>
+        {/each}
+      </div>
+      <div class="confirm-actions">
+        <button class="btn primary" disabled={!pickedKeys.length} onclick={readPicked}>
+          Read {pickedKeys.length || ""} selected
+        </button>
+      </div>
+    </section>
+  {/if}
 
   {#if due.length}
     <section>
@@ -283,9 +282,16 @@
     gap: 8px;
   }
   .pick {
+    padding: 18px 20px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 14px;
+  }
+  .pick h3 {
+    margin-bottom: 4px;
+  }
+  .pick .confirm-actions {
+    justify-content: flex-end;
   }
   .pick-search {
     display: flex;
@@ -347,21 +353,36 @@
     border-radius: 99px;
     transition: width 0.4s;
   }
+  /* Laid out like the quick-action tiles beside it, with the button along the bottom. */
   .primary-card {
-    padding: 22px 24px;
+    padding: 16px;
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 20px;
-    flex-wrap: wrap;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    border-color: var(--accent);
     background: linear-gradient(135deg, var(--accent-soft), transparent 70%), var(--surface);
   }
-  .primary-card h2 {
-    margin-bottom: 4px;
+  .primary-card b {
+    font-weight: 600;
+  }
+  .primary-card small {
+    color: var(--text-2);
+    font-size: 0.84rem;
+  }
+  .primary-card .btn {
+    margin-top: auto;
+    width: 100%;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .primary-card small + .btn {
+    margin-top: 12px;
   }
   .quick {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 12px;
   }
   .tile {
@@ -492,6 +513,22 @@
   .when.new {
     color: var(--accent);
     font-weight: 600;
+  }
+  @container (max-width: 1100px) {
+    /* No room for the shortcut hint inside the button. */
+    .primary-card kbd {
+      display: none;
+    }
+  }
+  @container (max-width: 900px) {
+    .quick {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  @container (max-width: 420px) {
+    .quick {
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
   @container (max-width: 560px) {
     .hero {
