@@ -28,8 +28,8 @@
   <Clawd mood="encouraging" size={120} onpoke={() => store.say("proud", "Pick a folder and I'll teach it back to you!")} />
   <h1>What should Clawd teach you?</h1>
   <p class="muted lede">
-    Choose the folders with your study notes. Clawd reads the Markdown notes and PDFs in them, then you learn them by
-    explaining them back in your own words.
+    Choose the folders with your study notes. Then pick which Markdown notes and PDFs in them Clawd should read, and
+    learn them by explaining them back in your own words.
   </p>
 
   <div class="picker ct-card">
@@ -53,7 +53,7 @@
 
   <div class="go">
     <span class="muted small">
-      {#if total}{total} file{total > 1 ? "s" : ""} · Clawd reads them all when you start (one Claude request per note){/if}
+      {#if total}{total} file{total > 1 ? "s" : ""} · next you pick which ones Clawd reads (one Claude request per note){/if}
     </span>
     <button class="btn primary lg" disabled={!chosen.length} onclick={start}>Start learning<Icon name="arrow" size={16} /></button>
   </div>

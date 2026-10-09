@@ -79,6 +79,8 @@ export class Store {
   private lastActivity = Date.now();
   private approvedBulk = false;
   private declinedBulk = false;
+  /** Notes you picked for Clawd to read. */
+  private picked = new Set<string>();
   private timer: number | null = null;
   private ticker: number | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -104,6 +106,7 @@ export class Store {
     this.view = { name: "today" };
     this.approvedBulk = false;
     this.declinedBulk = false;
+    this.picked = new Set();
     setBackend(backend);
     this.settings = settings;
     this.saveSettings = saveSettings;
@@ -291,10 +294,18 @@ export class Store {
     });
   }
 
-  /** Notes Clawd should read: new ones, plus edited ones if auto re-reading is on. */
+  /**
+   * Notes Clawd should read: the ones you picked, plus ones it already read that you've since
+   * edited (if auto re-reading is on). New notes are never read until you pick them.
+   */
   private queue() {
     const auto = this.snap?.autoIndex ?? true;
-    return this.notes.filter((n) => n.stale && (!n.indexed || auto));
+    return this.notes.filter((n) => n.stale && (this.picked.has(n.key) || (n.indexed && auto)));
+  }
+
+  /** Notes in the library that Clawd has never read; you choose which of these to read. */
+  get unread() {
+    return this.notes.filter((n) => n.stale && !n.indexed);
   }
 
   async indexAll(force = false) {
@@ -304,15 +315,27 @@ export class Store {
     return this.runIndex(() => this.readAll(force, generation));
   }
 
+  /** Read the notes you picked (and finish any earlier picks that haven't been read yet). */
+  async readSelected(keys: string[]) {
+    for (const key of keys) this.picked.add(key);
+    await this.indexAll();
+  }
+
   private async readAll(force: boolean, generation: number) {
-    let queue = this.queue();
-    if (!queue.length) return;
     const limit = this.snap?.confirmAbove ?? 25;
-    if (queue.length > limit && !force && !this.approvedBulk) {
-      if (!this.declinedBulk) this.confirmCount = queue.length;
-      return;
-    }
-    this.confirmCount = null;
+    // Notes you picked are already approved. Lots of edited ones wait for your OK, but don't hold up your picks.
+    const next = () => {
+      const all = this.queue();
+      const edited = all.filter((n) => !this.picked.has(n.key));
+      if (edited.length <= limit || force || this.approvedBulk) {
+        this.confirmCount = null;
+        return all;
+      }
+      if (!this.declinedBulk) this.confirmCount = edited.length;
+      return all.filter((n) => this.picked.has(n.key));
+    };
+    let queue = next();
+    if (!queue.length) return;
     this.indexError = null;
     let done = 0;
     let total = queue.length;
@@ -337,14 +360,8 @@ export class Store {
         done++;
       }
       // Notes edited while we were reading get picked up too.
-      queue = this.queue();
+      queue = next();
       total = done + queue.length;
-      // Notes that turned up mid-run (e.g. the startup scan finishing) count toward the limit too.
-      if (total > limit && !force && !this.approvedBulk) {
-        this.indexing = null;
-        if (!this.declinedBulk) this.confirmCount = queue.length;
-        return;
-      }
     }
     this.indexing = null;
     this.say("proud", `All read! I know ${this.concepts.length} concepts from your notes.`);
@@ -360,6 +377,8 @@ export class Store {
       }
       this.say("curious", `Added “${file.basename}”. Let me read it…`);
       new Notice(`Claude Tutor: added ${file.name}`);
+      // You picked this one note, so reading it is what you asked for.
+      await this.readSelected(keys);
     }).open();
   }
 
@@ -367,7 +386,7 @@ export class Store {
     new FolderPicker(obsidianApp(), async (folder) => {
       const path = folder.isRoot() ? "/" : folder.path;
       await api.addFolder(path);
-      this.say("curious", `Added ${path === "/" ? "the whole vault" : `“${folder.name}”`}.`);
+      this.say("curious", `Added ${path === "/" ? "the whole vault" : `“${folder.name}”`}. Pick the notes you want me to read.`);
     }).open();
   }
 
@@ -380,10 +399,8 @@ export class Store {
   async configure(folders: string[]) {
     this.settings().studyFolders = folders;
     await this.saveSettings();
-    // Setup already showed how many notes this reads; don't ask again on Today.
-    this.approvedBulk = true;
-    this.say("curious", "Great choice! Let me read your notes…");
     await api.rescan();
+    this.say("curious", "Great choice! Now pick the notes you want me to read.");
   }
 
   confirmBulk(yes: boolean) {
@@ -393,7 +410,7 @@ export class Store {
       void this.indexAll(true);
     } else {
       this.declinedBulk = true;
-      this.say("happy", "No problem. Right-click any note → “Quiz me on this” and I'll read just that one.");
+      this.say("happy", "No problem. I'll leave your edited notes as they are until you ask me to re-read them.");
     }
   }
 

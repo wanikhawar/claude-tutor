@@ -180,39 +180,19 @@ describe("progress persistence", () => {
     expect(settled).toBe(true);
   });
 
-  it("asks before reading past the bulk limit when the startup scan adds notes mid-run", async () => {
+  it("never sends new notes to Claude when the startup scan or an edit finds them", async () => {
     vi.useFakeTimers();
-    const f = pluginFixture(["a.md", "slow.md", "c.md", "d.md"]);
-    f.settings.confirmAbove = 2;
+    const f = pluginFixture(["a.md", "b.md"]);
     vi.spyOn(f.plugin, "loadData").mockResolvedValue(f.settings);
-    const raw = deferred<string>();
-    const slowStarted = deferred<void>();
-    f.vault.cachedRead.mockImplementation(async (file: TFile) => {
-      if (file.path === "slow.md") { slowStarted.resolve(); return raw.promise; }
-      return `Content of ${file.path}`;
-    });
-    const firstExtract = deferred<{ concepts: [] }>();
-    const extractStarted = deferred<void>();
-    const extract = vi.spyOn(tutor, "extractConcepts")
-      .mockImplementationOnce(() => { extractStarted.resolve(); return firstExtract.promise; })
-      .mockResolvedValue({ concepts: [] });
+    const extract = vi.spyOn(tutor, "extractConcepts").mockResolvedValue({ concepts: [] });
     await f.plugin.onload();
-    const scanning = f.layout();
-    await slowStarted.promise;
-    // A note created during the scan starts a run with it and a.md (already scanned): within the limit.
-    const created = file("new-during-scan.md");
+    await f.layout();
+    const created = file("new.md");
     f.files.push(created);
     f.events.get("create")!(created);
-    await vi.advanceTimersByTimeAsync(2001);
-    await extractStarted.promise;
-    const indexing = (store as unknown as { indexTask: Promise<unknown> }).indexTask;
-    raw.resolve("Slow document contents");
-    await scanning;
-    firstExtract.resolve({ concepts: [] });
-    await indexing;
-    // slow.md, c.md and d.md then join the queue, which would make 5 reads: ask instead.
-    expect(extract).toHaveBeenCalledTimes(2);
-    expect(store.confirmCount).toBe(3);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(extract).not.toHaveBeenCalled();
+    expect(store.unread.map((n) => n.key)).toEqual(["a.md", "b.md", "new.md"]);
     f.plugin.onunload();
     await f.plugin.unloading;
   });
@@ -236,7 +216,7 @@ describe("progress persistence", () => {
     await f.plugin.onload();
     await f.layout();
     await store.refresh();
-    const bulk = store.indexAll();
+    const bulk = store.readSelected(["a.md", "b.md"]);
     await Promise.resolve();
     expect(extract).toHaveBeenCalledTimes(1);
     f.plugin.onunload();

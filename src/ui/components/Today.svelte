@@ -33,6 +33,21 @@
       .join(", ") + ` · about ${minutes} min`,
   );
 
+  // Notes Clawd hasn't read yet: nothing is sent to Claude until you tick them here.
+  const unread = $derived(store.unread);
+  let picked = $state<string[]>([]);
+  let filterText = $state("");
+  const shownUnread = $derived(unread.filter((n) => n.title.toLowerCase().includes(filterText.trim().toLowerCase())).slice(0, 200));
+  const pickedKeys = $derived(picked.filter((k) => unread.some((n) => n.key === k)));
+  function togglePick(key: string) {
+    picked = picked.includes(key) ? picked.filter((k) => k !== key) : [...picked, key];
+  }
+  function readPicked() {
+    const keys = pickedKeys;
+    picked = [];
+    void store.readSelected(keys);
+  }
+
   let root = $state<HTMLDivElement>();
   // Shortcuts only work while the tutor view has focus, so they never fight Obsidian's hotkeys.
   $effect(() => {
@@ -85,15 +100,47 @@
   {#if store.confirmCount}
     <section class="ct-card confirm">
       <div>
-        <h3>Read {store.confirmCount} notes?</h3>
+        <h3>Re-read {store.confirmCount} edited notes?</h3>
         <p class="muted small">
           That's {store.confirmCount} Claude requests, which uses some of your subscription. You can also skip this and
-          right-click a note → “Quiz me on this” to read notes one at a time.
+          re-read notes one at a time from the Library tab.
         </p>
       </div>
       <div class="confirm-actions">
         <button class="btn ghost" onclick={() => store.confirmBulk(false)}>Not now</button>
-        <button class="btn primary" onclick={() => store.confirmBulk(true)}>Read them all</button>
+        <button class="btn primary" onclick={() => store.confirmBulk(true)}>Re-read them</button>
+      </div>
+    </section>
+  {/if}
+
+  {#if unread.length && !store.indexing}
+    <section class="ct-card pick">
+      <div>
+        <h3>Which notes should Clawd read?</h3>
+        <p class="muted small">
+          {unread.length} note{unread.length > 1 ? "s" : ""} in your library {unread.length > 1 ? "haven't" : "hasn't"} been
+          read yet. Clawd only reads the ones you tick (one Claude request each).
+        </p>
+      </div>
+      {#if unread.length > 8}
+        <div class="pick-search">
+          <Icon name="search" size={16} />
+          <input type="search" placeholder="Filter notes" bind:value={filterText} />
+        </div>
+      {/if}
+      <div class="pick-list">
+        {#each shownUnread as n (n.key)}
+          <label class="pick-row" class:sel={picked.includes(n.key)}>
+            <input type="checkbox" checked={picked.includes(n.key)} onchange={() => togglePick(n.key)} />
+            <Icon name="file" size={16} />
+            <span class="pick-title" title={n.rel}>{n.title}</span>
+          </label>
+        {/each}
+      </div>
+      <div class="confirm-actions">
+        <button class="btn primary" disabled={!pickedKeys.length} onclick={readPicked}>
+          Read {pickedKeys.length || ""} selected
+        </button>
       </div>
     </section>
   {/if}
@@ -114,7 +161,7 @@
       <h2>{due.length ? "Ready for today's session" : ready ? "You're all caught up" : "Getting ready…"}</h2>
       <p class="muted">
         {#if !ready}
-          Clawd needs to read your notes before the first session.
+          Pick at least one note for Clawd to read before your first session.
         {:else if caughtUp && plan.length}
           Nothing is due. Want to get ahead on your weakest concepts? {summary}
         {:else if caughtUp}
@@ -234,6 +281,49 @@
   .confirm-actions {
     display: flex;
     gap: 8px;
+  }
+  .pick {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .pick-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-3);
+  }
+  .pick-search input {
+    flex: 1;
+  }
+  .pick-list {
+    max-height: 260px;
+    overflow: auto;
+  }
+  .pick-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 8px;
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    color: var(--text-2);
+  }
+  .pick-row:hover {
+    background: var(--surface-2);
+  }
+  .pick-row.sel {
+    background: var(--accent-soft);
+    color: var(--text);
+  }
+  .pick-row input {
+    margin: 0;
+  }
+  .pick-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .reading {
     display: flex;

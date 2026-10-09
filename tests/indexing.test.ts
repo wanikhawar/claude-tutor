@@ -24,7 +24,7 @@ describe("requested note reads", () => {
     const extract = vi.spyOn(tutor, "extractConcepts")
       .mockReturnValueOnce(first.promise)
       .mockResolvedValueOnce({ concepts: [extracted("Requested idea")] });
-    const bulk = state.indexAll();
+    const bulk = state.readSelected(["a.md"]);
     const study = state.studyNote(["b.md"], "quiz");
     await Promise.resolve();
     expect(extract).toHaveBeenCalledTimes(1);
@@ -43,7 +43,7 @@ describe("requested note reads", () => {
     const extract = vi.spyOn(tutor, "extractConcepts")
       .mockReturnValueOnce(first.promise)
       .mockResolvedValueOnce({ concepts: [extracted("B idea")] });
-    const bulk = state.indexAll();
+    const bulk = state.readSelected(["a.md", "b.md"]);
     const study = state.studyNote(["b.md"], "explain");
     first.resolve({ concepts: [extracted("A idea")] });
     await Promise.all([bulk, study]);
@@ -173,13 +173,44 @@ describe("requested note reads", () => {
     await setup();
     const extract = vi.spyOn(tutor, "extractConcepts").mockRejectedValueOnce(new Error("First failure"))
       .mockRejectedValueOnce(new Error("Second failure")).mockResolvedValue({ concepts: [extracted()] });
-    await state.indexAll();
+    await state.readSelected(["a.md", "b.md"]);
     await state.retryIndexing();
     expect(state.indexError).toBe("Second failure");
     await state.retryIndexing();
     expect(state.notes.every((n) => !n.stale)).toBe(true);
     expect(extract.mock.calls.map(([, title]) => title)).toEqual(["a.md", "a.md", "a.md", "b.md"]);
     expect(state.indexError).toBeNull();
+  });
+});
+
+describe("choosing what Clawd reads", () => {
+  it("never reads new notes until you pick them, then reads only those", async () => {
+    await setup(["a.md", "b.md", "c.md"]);
+    const extract = vi.spyOn(tutor, "extractConcepts").mockResolvedValue({ concepts: [extracted()] });
+    await state.indexAll();
+    expect(extract).not.toHaveBeenCalled();
+    expect(state.confirmCount).toBeNull();
+    expect(state.unread.map((n) => n.key)).toEqual(["a.md", "b.md", "c.md"]);
+    await state.readSelected(["b.md"]);
+    expect(extract.mock.calls.map(([, title]) => title)).toEqual(["b.md"]);
+    expect(state.unread.map((n) => n.key)).toEqual(["a.md", "c.md"]);
+  });
+
+  it("asks before re-reading many edited notes, but not for the ones you picked", async () => {
+    const f = await setup(["a.md", "b.md", "c.md"]);
+    f.settings.confirmAbove = 1;
+    for (const key of ["a.md", "b.md"]) f.progress.saveConcepts(key, "old-hash", [extracted()]);
+    await state.refresh();
+    const extract = vi.spyOn(tutor, "extractConcepts").mockResolvedValue({ concepts: [extracted()] });
+    await state.indexAll();
+    expect(extract).not.toHaveBeenCalled();
+    expect(state.confirmCount).toBe(2);
+    await state.readSelected(["c.md"]);
+    expect(extract.mock.calls.map(([, title]) => title)).toEqual(["c.md"]);
+    expect(state.confirmCount).toBe(2);
+    state.confirmBulk(true);
+    await vi.waitFor(() => expect(extract).toHaveBeenCalledTimes(3));
+    expect(state.confirmCount).toBeNull();
   });
 });
 
@@ -246,7 +277,7 @@ describe("indexing disposal", () => {
     const f = await setup();
     const first = deferred<{ concepts: ReturnType<typeof extracted>[] }>();
     const extract = vi.spyOn(tutor, "extractConcepts").mockReturnValue(first.promise);
-    const bulk = state.indexAll();
+    const bulk = state.readSelected(["a.md", "b.md"]);
     f.backend.emit();
     await Promise.resolve();
     const refresh = vi.spyOn(state, "refresh");
@@ -269,7 +300,7 @@ describe("indexing disposal", () => {
     const f = await setup();
     const first = deferred<{ concepts: ReturnType<typeof extracted>[] }>();
     const extract = vi.spyOn(tutor, "extractConcepts").mockReturnValue(first.promise);
-    const bulk = state.indexAll();
+    const bulk = state.readSelected(["a.md", "b.md"]);
     const study = state.studyNote(["b.md"], "quiz");
     await Promise.resolve();
     state.init(f.backend, () => f.settings, async () => {});

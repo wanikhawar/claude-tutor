@@ -187,8 +187,8 @@ export class TutorSettingTab extends PluginSettingTab {
               ),
           },
           {
-            name: "Ask before reading many notes",
-            desc: "Confirm first when more than this many notes need reading at once.",
+            name: "Ask before re-reading many notes",
+            desc: "Confirm first when more than this many edited notes need re-reading at once.",
             build: (setting) =>
               setting.addText((t) =>
                 t.setValue(String(s.confirmAbove)).onChange(async (v) => {

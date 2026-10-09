@@ -421,20 +421,18 @@ describe("follow-ups", () => {
     expect(store.toast).toBeNull();
   });
 
-  it("does not ask again on Today after setup already showed the note count", async () => {
+  it("doesn't read anything after setup until you pick notes", async () => {
     store.dispose();
     const g = fixture(["a.md", "b.md", "c.md"]);
-    g.settings.confirmAbove = 1;
     store.init(g.backend, () => g.settings, async () => {});
     await store.refresh();
     const read = vi.spyOn(api, "indexNote").mockImplementation(async () => ({ ...store.snap!, notes: store.snap!.notes.map((n) => ({ ...n, stale: false })) }));
-    await store.indexAll();
-    expect(store.confirmCount).toBe(3);
-    expect(read).not.toHaveBeenCalled();
     await store.configure(["/"]);
     await store.indexAll();
+    expect(read).not.toHaveBeenCalled();
     expect(store.confirmCount).toBeNull();
-    expect(read).toHaveBeenCalled();
+    await store.readSelected(["a.md"]);
+    expect(read.mock.calls.map(([key]) => key)).toEqual(["a.md"]);
   });
 
   it("pins Clawd's follow-up above the composer and sends it to the grader", async () => {
