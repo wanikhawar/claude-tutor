@@ -55,7 +55,7 @@ For development, symlink the folder instead and run `npm run dev` to rebuild on 
 
 | Command | |
 |---|---|
-| Open | Opens the tutor (in a tab, or the right sidebar if you choose that in settings) |
+| Open | Opens the tutor (in the right sidebar, where it resizes with the sidebar; or in a tab if you turn that off in settings) |
 | Start study session | Explain due concepts, then a short quiz |
 | Quiz me on the current note | Reads the note if needed, then quizzes you on it |
 | Explain a concept from the current note | Starts the Feynman loop on its most due concept |

@@ -318,7 +318,6 @@
       </div>
       <div class="top-actions">
         <div class="ct-composer-settings wide-only"><ModelPicker /></div>
-        <span class="narrow-only"><ModelPicker compact /></span>
         {#if !done && history.length >= 4}
           <button class="btn ghost sm" disabled={waiting} onclick={() => control("wrap")}>Wrap up</button>
         {/if}
@@ -416,6 +415,8 @@
               <button class="btn sm cancel" onclick={cancel} title="Stop this request (Esc)"><Icon name="x" size={14} />Cancel</button>
             {/if}
           </div>
+          <!-- Narrow panes have no room in the header, so the model and effort switches sit under the entry box. -->
+          <div class="ct-composer-footer model-row"><div class="ct-composer-settings"><ModelPicker /></div></div>
         </div>
       </footer>
     {/if}
@@ -654,15 +655,15 @@
       opacity: 1;
     }
   }
-  .narrow-only {
+  .composer .model-row {
     display: none;
   }
   @container (max-width: 560px) {
     .wide-only {
       display: none;
     }
-    .narrow-only {
-      display: inline-flex;
+    .composer .model-row {
+      display: flex;
     }
     .col {
       padding: 0 12px;

@@ -230,6 +230,34 @@ describe("progress persistence", () => {
   });
 });
 
+describe("where the tutor lives", () => {
+  function leaf(root: object) {
+    return { getRoot: () => root, detach: vi.fn(), setViewState: vi.fn(async () => {}) };
+  }
+
+  it("moves a tutor tab restored from an older layout into the right sidebar", async () => {
+    const f = pluginFixture();
+    const rightSplit = {};
+    const tab = leaf({});
+    const side = leaf(rightSplit);
+    Object.assign(f.app.workspace, { rightSplit, getLeavesOfType: () => [tab], getRightLeaf: () => side });
+    f.settings.openInSidebar = true;
+    await f.plugin.placeView();
+    expect(tab.detach).toHaveBeenCalled();
+    expect(side.setViewState).toHaveBeenCalledWith({ type: "claude-tutor", active: false });
+  });
+
+  it("leaves a view that's already in the sidebar alone", async () => {
+    const f = pluginFixture();
+    const rightSplit = {};
+    const side = leaf(rightSplit);
+    Object.assign(f.app.workspace, { rightSplit, getLeavesOfType: () => [side] });
+    f.settings.openInSidebar = true;
+    expect(await f.plugin.placeView()).toBe(side);
+    expect(side.detach).not.toHaveBeenCalled();
+  });
+});
+
 describe("note command ordering", () => {
   it("does not activate or launch an older command that finishes loading after a newer one", async () => {
     const f = pluginFixture();

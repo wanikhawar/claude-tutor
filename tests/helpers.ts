@@ -57,6 +57,7 @@ export function fixture(paths = ["a.md", "b.md"]) {
   const workspace = {
     on: () => ({}),
     onLayoutReady: (fn: () => Promise<void>) => { layoutReady = fn; },
+    getLeavesOfType: (): unknown[] => [],
   };
   const app = { vault, workspace } as unknown as App;
   const progress = new Progress(emptyProgress());

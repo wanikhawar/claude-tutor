@@ -128,7 +128,7 @@
   <section class="quick">
     <div class="ct-card primary-card">
       <span class="ti" style="color: var(--good)"><Icon name="sun" /></span>
-      <b>{due.length ? "Today's session" : ready ? "All caught up" : "Getting ready…"}</b>
+      <b>{due.length ? "Today's session" : ready ? "All caught up" : "Getting ready…"}{#if ready && !(caughtUp && !plan.length)}{" "}<kbd>Enter</kbd>{/if}</b>
       <small>
         {#if !ready}
           Pick at least one note for Clawd to read first.
@@ -144,7 +144,7 @@
         <button class="btn primary" onclick={() => (store.view = { name: "teach" })}><Icon name="sparkles" size={15} />Learn something new</button>
       {:else}
         <button class="btn primary" disabled={!ready} onclick={() => store.startStudy()}>
-          <Icon name="play" size={15} />{caughtUp ? "Review ahead" : "Start studying"}<kbd>Enter</kbd>
+          <Icon name="play" size={15} />{caughtUp ? "Review ahead" : "Start studying"}
         </button>
       {/if}
     </div>
@@ -373,9 +373,7 @@
   .primary-card .btn {
     margin-top: auto;
     width: 100%;
-    min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
+    padding: 0 10px;
   }
   .primary-card small + .btn {
     margin-top: 12px;
@@ -514,20 +512,20 @@
     color: var(--accent);
     font-weight: 600;
   }
-  @container (max-width: 1100px) {
-    /* No room for the shortcut hint inside the button. */
-    .primary-card kbd {
-      display: none;
-    }
-  }
   @container (max-width: 900px) {
     .quick {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
   @container (max-width: 420px) {
+    .page {
+      padding: 20px 14px 32px;
+    }
     .quick {
       grid-template-columns: minmax(0, 1fr);
+    }
+    .stats {
+      gap: 8px 18px;
     }
   }
   @container (max-width: 560px) {

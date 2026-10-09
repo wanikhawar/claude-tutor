@@ -717,7 +717,6 @@
     </div>
     <div class="top-actions">
       <div class="ct-composer-settings wide-only"><ModelPicker /></div>
-      <span class="narrow-only"><ModelPicker compact /></span>
       <button class="btn ghost sm" onclick={end}>{phase.p === "done" ? "Close" : "End session"}</button>
     </div>
   </header>
@@ -1006,6 +1005,8 @@
           <button class="btn primary lg" onclick={() => store.startStudy()}>Keep going<Icon name="arrow" size={16} /></button>
         </div>
       {/if}
+      <!-- Narrow panes have no room in the header, so the model and effort switches sit under the entry box. -->
+      <div class="ct-composer-footer model-row"><div class="ct-composer-settings"><ModelPicker /></div></div>
     </div>
   </footer>
 </div>
@@ -1317,7 +1318,7 @@
     background: var(--accent-soft);
     color: var(--text);
   }
-  .narrow-only {
+  .composer .model-row {
     display: none;
   }
   @container (max-width: 560px) {
@@ -1325,8 +1326,8 @@
     .wide-only {
       display: none;
     }
-    .narrow-only {
-      display: inline-flex;
+    .composer .model-row {
+      display: flex;
     }
   }
   @keyframes rise {

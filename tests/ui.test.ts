@@ -468,9 +468,11 @@ describe("follow-ups", () => {
     expect(store.plan?.steps).toEqual([{ kind: "explain", conceptId: c.id }]);
   });
 
-  it("offers a compact model menu for narrow panes", async () => {
+  it("keeps the model and effort switches under the entry box for narrow panes", async () => {
     component = flushSync(() => mount(Session, { target, props: { plan: { id: 1, title: "S", steps: [{ kind: "explain", conceptId: store.concepts[0].id }] } } }));
     await settle();
-    expect(target.querySelector(".top .narrow-only button.pick-compact")).not.toBeNull();
+    const row = target.querySelector(".composer .model-row");
+    expect(row?.querySelector("button.pick.model")).not.toBeNull();
+    expect(row?.textContent).toContain("Effort");
   });
 });

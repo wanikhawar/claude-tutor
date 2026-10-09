@@ -1,14 +1,11 @@
 <!--
   Model and effort switches. Use Obsidian's native menus.
-  `compact` is one icon button with both choices in a single menu, for narrow panes.
 -->
 <script lang="ts">
   import { Menu } from "obsidian";
   import { store } from "../lib/store.svelte";
   import { EFFORT_CHOICES, MODEL_CHOICES } from "../../settings";
   import Icon from "./Icon.svelte";
-
-  let { compact = false }: { compact?: boolean } = $props();
 
   const model = $derived(store.snap?.model ?? "sonnet");
   const effort = $derived(store.snap?.effort ?? "");
@@ -46,32 +43,20 @@
     menu.showAtPosition({ x: r.left, y: r.bottom });
   }
 
-  function open(e: MouseEvent, which: "model" | "effort" | "both") {
+  function open(e: MouseEvent, which: "model" | "effort") {
     const menu = new Menu();
-    if (which !== "effort") addModels(menu);
-    if (which === "both") menu.addSeparator();
-    if (which !== "model") addEffort(menu);
+    if (which === "model") addModels(menu);
+    else addEffort(menu);
     show(menu, e);
   }
 </script>
 
-{#if compact}
-  <button
-    type="button"
-    class="pick-compact"
-    aria-label="Model and effort: {names[model] ?? model}{effort ? `, ${effortName}` : ''}"
-    title="Model: {names[model] ?? model} · Effort: {effort ? effortName : 'default'}"
-    aria-haspopup="menu"
-    onclick={(e) => open(e, "both")}><Icon name="cpu" size={16} /></button
-  >
-{:else}
-  <button type="button" class="pick model" title="Change the tutor model" aria-haspopup="menu" onclick={(e) => open(e, "model")}>
-    {names[model] ?? model}
-  </button>
-  <button type="button" class="pick" title="How hard Claude thinks" aria-haspopup="menu" onclick={(e) => open(e, "effort")}>
-    {effort ? effortName : "Effort"}
-  </button>
-{/if}
+<button type="button" class="pick model" title="Change the tutor model" aria-haspopup="menu" onclick={(e) => open(e, "model")}>
+  {names[model] ?? model}
+</button>
+<button type="button" class="pick" title="How hard Claude thinks" aria-haspopup="menu" onclick={(e) => open(e, "effort")}>
+  {effort ? effortName : "Effort"}
+</button>
 
 <style>
   .pick {
@@ -90,18 +75,5 @@
   }
   .model {
     color: var(--text);
-  }
-  .pick-compact {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    border-radius: 6px;
-    color: var(--text-2);
-  }
-  .pick-compact:hover {
-    color: var(--text);
-    background: var(--surface-2);
   }
 </style>

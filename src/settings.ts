@@ -46,7 +46,7 @@ export const DEFAULT_SETTINGS: TutorSettings = {
   claudePath: "",
   explainPerSession: 2,
   quizQuestions: 4,
-  openInSidebar: false,
+  openInSidebar: true,
   lessonFolder: "Claude Tutor/Lessons",
 };
 
@@ -240,12 +240,14 @@ export class TutorSettingTab extends PluginSettingTab {
           },
           {
             name: "Open in right sidebar",
-            desc: "Open Claude Tutor in the right sidebar instead of a tab.",
+            desc: "Keep Claude Tutor in the right sidebar, where it resizes with the sidebar. Turn off to open it in a tab.",
             build: (setting) =>
               setting.addToggle((t) =>
                 t.setValue(s.openInSidebar).onChange(async (v) => {
                   s.openInSidebar = v;
                   await save();
+                  // Move an open tutor view to its new place.
+                  await this.plugin.placeView();
                 }),
               ),
           },

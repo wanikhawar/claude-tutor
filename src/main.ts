@@ -1,4 +1,4 @@
-import { FileSystemAdapter, Menu, Notice, Plugin, TAbstractFile, TFile, TFolder, addIcon, debounce, loadMathJax, normalizePath, type Debouncer } from "obsidian";
+import { FileSystemAdapter, Menu, Notice, Plugin, TAbstractFile, TFile, TFolder, addIcon, debounce, loadMathJax, normalizePath, type Debouncer, type WorkspaceLeaf } from "obsidian";
 import { rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { Backend } from "./backend";
@@ -76,6 +76,9 @@ export default class ClaudeTutorPlugin extends Plugin {
     this.registerFileMenu();
 
     this.app.workspace.onLayoutReady(async () => {
+      if (this.unloaded) return;
+      // A tutor tab restored from an older layout moves to the sidebar (or back) to match the setting.
+      await this.placeView();
       if (this.unloaded) return;
       // Listen before scanning so notes created or edited during a slow scan aren't missed.
       this.registerVaultEvents();
@@ -165,13 +168,27 @@ export default class ClaudeTutorPlugin extends Plugin {
   // UI entry points
 
   async activate() {
+    const leaf = (await this.placeView()) ?? (await this.openView(true));
+    await this.app.workspace.revealLeaf(leaf);
+  }
+
+  /**
+   * The open tutor view, moved to the right sidebar (or a main tab) if it isn't where the
+   * "Open in right sidebar" setting says. Undefined when it isn't open.
+   */
+  async placeView(): Promise<WorkspaceLeaf | undefined> {
     const { workspace } = this.app;
-    let leaf = workspace.getLeavesOfType(VIEW_TYPE)[0];
-    if (!leaf) {
-      leaf = (this.settings.openInSidebar ? workspace.getRightLeaf(false) : workspace.getLeaf("tab"))!;
-      await leaf.setViewState({ type: VIEW_TYPE, active: true });
-    }
-    await workspace.revealLeaf(leaf);
+    const leaf = workspace.getLeavesOfType(VIEW_TYPE)[0];
+    if (!leaf || (leaf.getRoot() === workspace.rightSplit) === this.settings.openInSidebar) return leaf;
+    leaf.detach();
+    return this.openView(false);
+  }
+
+  private async openView(active: boolean): Promise<WorkspaceLeaf> {
+    const { workspace } = this.app;
+    const leaf = (this.settings.openInSidebar ? workspace.getRightLeaf(false) : workspace.getLeaf("tab"))!;
+    await leaf.setViewState({ type: VIEW_TYPE, active });
+    return leaf;
   }
 
   openSettings() {
