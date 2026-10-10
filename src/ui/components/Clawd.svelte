@@ -83,8 +83,10 @@
   tabindex={onpoke ? 0 : undefined}
   onclick={poke}
   onkeydown={(e) => onpoke && (e.key === "Enter" || e.key === " ") && poke()}
-  aria-label={onpoke ? "Poke Clawd" : `Clawd is ${mood}`}
 >
+  <!-- Named by a title, not aria-label: Obsidian gives anything with an aria-label its own
+       tooltip, which only works on HTML elements and throws on an SVG. -->
+  <title>{onpoke ? "Poke Clawd" : `Clawd is ${mood}`}</title>
   <defs>
     <clipPath id="lenses-{size}">
       <rect x="3.9" y="7.55" width="3.2" height="2.9" rx="0.5" />

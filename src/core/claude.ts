@@ -3,55 +3,18 @@
 // `claude -p` uses whatever account the CLI is logged into, so a Pro/Max subscription
 // works without an API key. Each call is one-shot, tool-less and returns JSON matching
 // a schema. MCP servers, skills and user settings are disabled so per-call overhead
-// stays around 1k tokens.
+// stays around 1k tokens. Running the process itself is shared with Codex (./cli).
 
-import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { findBinary, runCli, type DiscoveredModel, type ModelList, type RequestOptions } from "./cli";
 import type { ImageInput } from "./types";
 
-export interface ClaudeOptions {
-  /** Path to the `claude` binary; empty = auto-detect. */
-  path: string;
-  /** Model alias for `--model` ("sonnet", "opus", "haiku", "fable"); empty = CLI default. */
-  model: string;
-  /** `--effort` level (low, medium, high, xhigh, max); empty = CLI default. */
-  effort?: string;
-  /** Told which exact model answered (e.g. "claude-sonnet-5-5"). */
-  onModel?: (id: string) => void;
-  /** Neutral working directory so no project CLAUDE.md is picked up. */
-  cwd: string;
-  /** Kill the request after this long. */
-  timeoutMs?: number;
-  /** Cancel the request when its owner is disposed. */
-  signal?: AbortSignal;
-}
-
-/** GUI apps often start without the user's shell PATH, so look in the usual install spots. */
 export function findClaude(configured: string): string {
-  if (configured.trim()) return configured.trim();
-  const home = homedir();
-  const candidates = [
-    join(home, ".local/bin/claude"),
-    join(home, ".claude/local/claude"),
-    join(home, ".npm-global/bin/claude"),
-    join(home, ".bun/bin/claude"),
-    "/opt/homebrew/bin/claude",
-    "/usr/local/bin/claude",
-    "/usr/bin/claude",
-  ];
-  return candidates.find((c) => existsSync(c)) ?? "claude";
+  return findBinary(configured, "claude", [".claude/local"]);
 }
 
-function childEnv(): NodeJS.ProcessEnv {
-  const home = homedir();
-  const extra = [join(home, ".local/bin"), "/opt/homebrew/bin", "/usr/local/bin"];
-  return { ...process.env, PATH: [...extra, process.env.PATH ?? ""].join(":") };
-}
+const RUN = { command: "claude", who: "Claude", product: "Claude Code" };
 
-export function ask<T>(o: ClaudeOptions, system: string, prompt: string, schema: object, images: ImageInput[] = []): Promise<T> {
-  if (o.signal?.aborted) return Promise.reject(new Error("Claude request cancelled."));
+export function askClaude<T>(o: RequestOptions, system: string, prompt: string, schema: object, images: ImageInput[] = []): Promise<T> {
   // Images go in as content blocks via stream-json input; plain prompts use the simpler text mode.
   const streaming = images.length > 0;
   const args = [
@@ -71,56 +34,76 @@ export function ask<T>(o: ClaudeOptions, system: string, prompt: string, schema:
   ];
   if (o.model.trim()) args.push("--model", o.model.trim());
   if (o.effort?.trim()) args.push("--effort", o.effort.trim());
-
-  return new Promise((resolve, reject) => {
-    const bin = findClaude(o.path);
-    const child = spawn(bin, args, { cwd: o.cwd, env: childEnv(), stdio: ["pipe", "pipe", "pipe"] });
-    let out = "";
-    let err = "";
-    let settled = false;
-    const cleanup = () => {
-      settled = true;
-      window.clearTimeout(timer);
-      o.signal?.removeEventListener("abort", abort);
-    };
-    const fail = (error: unknown) => {
-      if (settled) return;
-      cleanup();
-      child.kill();
-      reject(error instanceof Error ? error : new Error(String(error)));
-    };
-    const abort = () => fail(new Error("Claude request cancelled."));
-    const timer = window.setTimeout(() => fail(new Error("Claude took too long to answer (timed out).")), o.timeoutMs ?? 300_000);
-    o.signal?.addEventListener("abort", abort, { once: true });
-
-    child.stdout.on("data", (d) => (out += d));
-    child.stderr.on("data", (d) => (err += d));
-    child.on("error", (e: NodeJS.ErrnoException) => {
-      fail(
-        new Error(
-          e.code === "ENOENT"
-            ? `Couldn't find the \`claude\` command (looked for "${bin}"). Install Claude Code or set its path in the plugin settings.`
-            : `Couldn't launch claude: ${e.message}`,
-        ),
-      );
-    });
-    // stdin is a separate stream: early CLI exits can emit EPIPE while sending images.
-    child.stdin.on("error", (e: Error) => fail(new Error(`Couldn't send input to claude: ${e.message}`)));
-    child.on("close", (code) => {
-      if (settled) return;
-      try {
-        const { data, models } = streaming ? parseStreamResult<T>(out, err, code) : parseResult<T>(out, err, code);
-        if (models[0]) o.onModel?.(models[0]);
-        cleanup();
-        resolve(data);
-      } catch (e) {
-        fail(e);
-      }
-    });
-    if (o.signal?.aborted) return abort();
+  return runCli({
+    ...RUN,
+    bin: findClaude(o.path),
+    args,
+    cwd: o.cwd,
+    signal: o.signal,
+    timeoutMs: o.timeoutMs ?? 300_000,
+    timeoutMessage: "Claude took too long to answer (timed out).",
+    inputErrors: true,
     // Prompts can contain whole notes, so send them over stdin, not argv.
-    child.stdin.end(streaming ? userMessage(prompt, images) : prompt);
+    start: (stdin) => stdin.end(streaming ? userMessage(prompt, images) : prompt),
+    onExit: ({ stdout, stderr, code }) => {
+      const { data, models } = streaming ? parseStreamResult<T>(stdout, stderr, code) : parseResult<T>(stdout, stderr, code);
+      if (models[0]) o.onModel?.(models[0]);
+      return data;
+    },
   });
+}
+
+/**
+ * Ask the CLI which models it offers. This is only the SDK `initialize` handshake:
+ * no prompt is sent, so it costs nothing against your limits.
+ */
+export function listClaudeModels(o: Pick<RequestOptions, "path" | "cwd" | "timeoutMs" | "signal">): Promise<ModelList> {
+  const args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--tools", "", "--setting-sources", "", "--no-session-persistence", "--strict-mcp-config"];
+  return runCli({
+    ...RUN,
+    bin: findClaude(o.path),
+    args,
+    cwd: o.cwd,
+    signal: o.signal,
+    timeoutMs: o.timeoutMs ?? 30_000,
+    timeoutMessage: "Claude Code took too long to list its models.",
+    start: (stdin) => stdin.end(JSON.stringify({ type: "control_request", request_id: "models", request: { subtype: "initialize" } }) + "\n"),
+    // Stop as soon as the answer is in rather than waiting for the CLI to exit.
+    onOutput: (stdout) => parseModelList(stdout) ?? undefined,
+    onExit: ({ stdout, stderr, code }) => {
+      const found = parseModelList(stdout);
+      if (!found) throw new Error(`claude exited with code ${code}: ${stderr.trim() || "no model list"}`);
+      return found;
+    },
+  });
+}
+
+/** The model list from the `initialize` control response, or null if it hasn't arrived. */
+export function parseModelList(stdout: string): ModelList | null {
+  for (const line of stdout.split("\n")) {
+    if (!line.trim().startsWith("{")) continue;
+    let v: { type?: string; response?: { request_id?: string; response?: Record<string, unknown> } };
+    try {
+      v = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (v.type !== "control_response" || v.response?.request_id !== "models") continue;
+    const r = v.response.response ?? {};
+    const raw = Array.isArray(r.models) ? (r.models as Record<string, unknown>[]) : [];
+    const str = (x: unknown) => (typeof x === "string" ? x : "");
+    const models = raw
+      .map((m) => ({
+        provider: "claude" as const,
+        id: str(m.value) === "default" ? "" : str(m.value),
+        name: str(m.displayName),
+        desc: str(m.description),
+        resolved: str(m.resolvedModel),
+      }))
+      .filter((m) => m.id || m.resolved);
+    return { version: str(r.claude_code_version), models };
+  }
+  return null;
 }
 
 /** Effort levels accepted by `claude --effort`. */

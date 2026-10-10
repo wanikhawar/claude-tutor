@@ -11,6 +11,7 @@
     errText,
     isCancel,
     obsidianApp,
+    type ChatTurn,
     type CheckResult,
     type Confidence,
     type FeynmanEval,
@@ -32,6 +33,7 @@
   import AttachButton from "./AttachButton.svelte";
   import SendButton from "./SendButton.svelte";
   import Thumbs from "./Thumbs.svelte";
+  import { Attachments } from "../lib/attachments.svelte";
   import { imageFiles, toInputs, type Img } from "../lib/images";
   import { enterToSend, loadDraft, masteryColor, masteryLevel, relativeDue, saveDraft, scoreColor, SEND_HINT } from "../lib/util";
 
@@ -44,7 +46,8 @@
     | { kind: "question"; q: Question; n: number; total: number; answered: number | null; mood: Mood }
     | { kind: "grade"; g: Grade; q: Question; mood: Mood }
     | { kind: "check"; r: CheckResult; mood: Mood }
-    | { kind: "error"; text: string; retry: () => void; mood: Mood }
+    /** `retry` is dropped once anything newer is sent: re-running it then would answer out of turn. */
+    | { kind: "error"; text: string; retry: (() => void) | null; mood: Mood }
     | { kind: "divider"; text: string }
     | { kind: "summary"; mood: Mood }
   );
@@ -78,13 +81,14 @@
   let stalled = $state<(() => void) | null>(null);
   let threadEl = $state<HTMLDivElement>();
   /** Images attached to the message being composed. */
-  let images = $state<Img[]>([]);
-  let attacher = $state<AttachButton>();
+  /** Owned here, not by an attach button, so switching Answer ↔ Ask Clawd keeps them. */
+  const att = new Attachments();
+  /** Images still being prepared: sending waits for them. */
+  const preparing = $derived(att.preparing > 0);
 
   /** Take the attached images for sending (and clear the composer). */
   function takeImages() {
-    const taken = images;
-    images = [];
+    const taken = att.take();
     return { inputs: toInputs(taken), urls: taken.map((i) => i.url), taken };
   }
 
@@ -92,7 +96,7 @@
     const files = imageFiles(e.clipboardData);
     if (files.length) {
       e.preventDefault();
-      void attacher?.add(files);
+      void att.add(files);
     }
   }
 
@@ -101,7 +105,7 @@
     if (files.length) {
       e.preventDefault();
       e.stopPropagation();
-      void attacher?.add(files);
+      void att.add(files);
     }
   }
 
@@ -117,7 +121,8 @@
     explained: [],
     quiz: [],
   });
-  let chat: [boolean, string][] = [];
+  // Each turn notes the concept it was about, so turns about a note you've since removed aren't sent again.
+  let chat: ChatTurn[] = [];
   /** Mastery of each concept this session touched, as it was before. */
   const before = new Map<number, number>();
   let touched = $state<number[]>([]);
@@ -169,6 +174,9 @@
    * If the learner cancels, `undo` puts back what they sent so they can edit it.
    */
   async function run(fn: (signal: AbortSignal) => Promise<void>, line = "Hmm, let me think…", undo?: () => void) {
+    // One request at a time: a stale "Try again" must not grade something twice.
+    if (thinking) return;
+    for (const m of msgs) if (m.kind === "error") m.retry = null;
     const prev = phase;
     const ctl = new AbortController();
     request = ctl;
@@ -220,7 +228,8 @@
     msgs = msgs.filter((m) => m.id !== id);
     if (into === "ask") ask = text;
     else draft = text;
-    images = taken;
+    // Keep anything attached while it was being sent.
+    att.restore(taken);
     void focusInput();
   }
 
@@ -230,6 +239,8 @@
   function startStep(i: number) {
     stepIdx = i;
     draft = "";
+    // Attachments belong to the step they were added for, like the draft.
+    att.clear();
     choice = null;
     mode = "answer";
     const step = steps[i];
@@ -291,7 +302,7 @@
     if (phase.p !== "explain") return;
     const ph = phase;
     const text = draft.trim();
-    if (!stuck && !text && !images.length) return;
+    if (!stuck && ((!text && !att.images.length) || preparing)) return;
     const img = stuck ? { inputs: [], urls: [], taken: [] } : takeImages();
     const sent = push({ kind: "me", text: stuck ? "I'm stuck. Can you teach me?" : text, images: img.urls });
     const kept = draft;
@@ -393,6 +404,8 @@
   // Quiz
 
   function showQuestion(questions: Question[], idx: number) {
+    // Attachments belong to the question they were added for, as they do to a step.
+    att.clear();
     choice = null;
     confidence = null;
     needConfidence = false;
@@ -414,7 +427,7 @@
     const mcq = isMcq(q);
     if (mcq && choice === null) return;
     const text = draft.trim();
-    if (!mcq && !text && !images.length) return;
+    if (!mcq && ((!text && !att.images.length) || preparing)) return;
     if (!confidence) {
       needConfidence = true;
       store.say("curious", "Before I check: how sure are you?");
@@ -452,7 +465,7 @@
     const ph = phase;
     const g = phase.grade;
     const text = draft.trim();
-    if (!text && !images.length) return;
+    if ((!text && !att.images.length) || preparing) return;
     const img = takeImages();
     const sent = push({ kind: "me", text, images: img.urls });
     const kept = draft;
@@ -460,6 +473,7 @@
     void run(async (signal) => {
       const r = await api.checkAnswer({
         signal,
+        conceptId: ph.questions[ph.idx].concept_id,
         question: g.check_question,
         key: g.check_answer,
         misconception: g.misconception,
@@ -529,17 +543,18 @@
 
   function sendAsk() {
     const message = ask.trim();
-    if ((!message && !images.length) || phase.p === "busy") return;
+    if ((!message && !att.images.length) || phase.p === "busy" || preparing) return;
     const s = situation();
     const img = takeImages();
     const sent = push({ kind: "me", text: message, images: img.urls });
     const kept = ask;
     ask = "";
-    const history = [...chat];
+    // Without turns about a note you've since removed; kept that way once this reply arrives.
+    const history = api.chatHistory(chat);
     const back = phase;
     void run(async (signal) => {
       const r = await api.askTutor(s.conceptId, s.text, history, message, img.inputs, signal);
-      chat.push([true, message + (img.urls.length ? " [attached an image]" : "")], [false, r.reply]);
+      chat = [...history, [true, message + (img.urls.length ? " [attached an image]" : ""), s.conceptId], [false, r.reply, s.conceptId]];
       const mood = asMood(r.mood, "happy");
       push({ kind: "say", md: r.reply, mood });
       store.say(mood, r.mascot_line);
@@ -653,6 +668,7 @@
     startStep(0);
     return () => {
       request?.abort();
+      att.clear();
       if (store.primaryHandlers.session === primary) delete store.primaryHandlers.session;
       if (store.session === live) store.session = null;
     };
@@ -775,10 +791,11 @@
                 </div>
               {:else if m.kind === "error"}
                 <div class="error">
-                  <p><b>I couldn't reach Claude.</b></p>
+                  <p><b>I couldn't get an answer.</b></p>
                   <p class="muted small">{m.text}</p>
-                  {#if m.id === lastClawd}
-                    <button class="btn sm" onclick={() => { msgs = msgs.filter((x) => x.id !== m.id); m.retry(); }}><Icon name="retry" size={15} />Try again</button>
+                  {#if m.id === lastClawd && m.retry}
+                    {@const retry = m.retry}
+                    <button class="btn sm" disabled={thinking} onclick={() => { msgs = msgs.filter((x) => x.id !== m.id); retry(); }}><Icon name="retry" size={15} />Try again</button>
                   {/if}
                 </div>
               {:else if m.kind === "summary"}
@@ -865,7 +882,7 @@
       {:else if mode === "ask" && canAsk}
         <form class="ask" onsubmit={(e) => { e.preventDefault(); sendAsk(); }} onpaste={onPaste} ondrop={onDrop} ondragover={(e) => e.preventDefault()}>
           <div class="ct-composer">
-            {#if images.length}<div class="box-imgs"><Thumbs {images} onremove={(i) => (images = images.filter((_, j) => j !== i))} /></div>{/if}
+            {#if att.images.length}<div class="box-imgs"><Thumbs images={att.images} onremove={(i) => att.remove(i)} /></div>{/if}
             <textarea
               class="ask-input"
               rows="1"
@@ -875,9 +892,9 @@
               onkeydown={(e) => enterToSend(e, sendAsk)}
             ></textarea>
             <div class="ct-composer-actions">
-              <AttachButton bind:this={attacher} bind:images />
+              <AttachButton attachments={att} />
               <span class="ct-composer-hint">{SEND_HINT}</span>
-              <SendButton label="Send message" type="submit" disabled={!ask.trim() && !images.length} />
+              <SendButton label="Send message" type="submit" disabled={(!ask.trim() && !att.images.length) || preparing} />
             </div>
           </div>
         </form>
@@ -892,7 +909,7 @@
           <p class="turn" id="turn-prompt"><Icon name="chat" size={14} /><span><b>Your turn:</b> <Markdown md={turnPrompt} inline /></span></p>
         {/if}
         <div class="box ct-composer" onpaste={onPaste} ondrop={onDrop} ondragover={(e) => e.preventDefault()} role="group">
-          {#if images.length}<div class="box-imgs"><Thumbs {images} onremove={(i) => (images = images.filter((_, j) => j !== i))} /></div>{/if}
+          {#if att.images.length}<div class="box-imgs"><Thumbs images={att.images} onremove={(i) => att.remove(i)} /></div>{/if}
           <textarea
             bind:this={inputEl}
             bind:value={draft}
@@ -903,9 +920,9 @@
             onkeydown={(e) => enterToSend(e, () => submitExplain())}
           ></textarea>
           <div class="ct-composer-actions">
-            <AttachButton bind:this={attacher} bind:images />
+            <AttachButton attachments={att} />
             <span class="ct-composer-hint">{SEND_HINT}</span>
-            <SendButton label={explainPhase.attempt ? "Explain again" : "Submit"} disabled={!draft.trim() && !images.length} onclick={() => submitExplain()} />
+            <SendButton label={explainPhase.attempt ? "Explain again" : "Submit"} disabled={(!draft.trim() && !att.images.length) || preparing} onclick={() => submitExplain()} />
           </div>
         </div>
         <div class="ct-composer-footer">
@@ -933,7 +950,7 @@
         {#if phase.stage === "answer"}
           {#if !isMcq(currentQ)}
             <div class="box ct-composer" onpaste={onPaste} ondrop={onDrop} ondragover={(e) => e.preventDefault()} role="group">
-              {#if images.length}<div class="box-imgs"><Thumbs {images} onremove={(i) => (images = images.filter((_, j) => j !== i))} /></div>{/if}
+              {#if att.images.length}<div class="box-imgs"><Thumbs images={att.images} onremove={(i) => att.remove(i)} /></div>{/if}
               <textarea
                 bind:this={inputEl}
                 bind:value={draft}
@@ -943,9 +960,9 @@
                 onkeydown={(e) => enterToSend(e, submitAnswer)}
               ></textarea>
               <div class="ct-composer-actions">
-                <AttachButton bind:this={attacher} bind:images />
+                <AttachButton attachments={att} />
                 <span class="ct-composer-hint">{SEND_HINT}</span>
-                <SendButton label="Submit" disabled={!draft.trim() && !images.length} onclick={submitAnswer} />
+                <SendButton label="Submit" disabled={(!draft.trim() && !att.images.length) || preparing} onclick={submitAnswer} />
               </div>
             </div>
           {/if}
@@ -970,7 +987,7 @@
           </div>
         {:else if phase.stage === "check"}
           <div class="box ct-composer" onpaste={onPaste} ondrop={onDrop} ondragover={(e) => e.preventDefault()} role="group">
-            {#if images.length}<div class="box-imgs"><Thumbs {images} onremove={(i) => (images = images.filter((_, j) => j !== i))} /></div>{/if}
+            {#if att.images.length}<div class="box-imgs"><Thumbs images={att.images} onremove={(i) => att.remove(i)} /></div>{/if}
             <textarea
               bind:this={inputEl}
               bind:value={draft}
@@ -980,9 +997,9 @@
               onkeydown={(e) => enterToSend(e, submitCheck)}
             ></textarea>
             <div class="ct-composer-actions">
-              <AttachButton bind:this={attacher} bind:images />
+              <AttachButton attachments={att} />
               <span class="ct-composer-hint">{SEND_HINT}</span>
-              <SendButton label="Check" disabled={!draft.trim() && !images.length} onclick={submitCheck} />
+              <SendButton label="Check" disabled={(!draft.trim() && !att.images.length) || preparing} onclick={submitCheck} />
             </div>
           </div>
           <div class="ct-composer-footer">

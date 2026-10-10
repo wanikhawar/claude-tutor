@@ -2,44 +2,14 @@
 <script lang="ts">
   import { Menu } from "obsidian";
   import { obsidianApp } from "../lib/api";
-  import { IMAGE_EXTS, MAX_IMAGES, fromVault, prepareImage, type Img } from "../lib/images";
+  import type { Attachments } from "../lib/attachments.svelte";
+  import { IMAGE_EXTS } from "../lib/images";
   import { ImagePicker } from "../lib/pickers";
-  import { store } from "../lib/store.svelte";
   import Icon from "./Icon.svelte";
 
-  let { images = $bindable([]) }: { images: Img[] } = $props();
+  // The attachments belong to the conversation, so switching composers never loses one.
+  let { attachments }: { attachments: Attachments } = $props();
   let input = $state<HTMLInputElement>();
-  // Bumped by `discardPending()`: images still being prepared are dropped instead of
-  // landing in whatever the bound list holds by then.
-  let epoch = 0;
-
-  /** Drop images that are still being prepared (e.g. when the conversation is reset). */
-  export function discardPending() {
-    epoch++;
-  }
-
-  export async function add(files: Blob[], names: string[] = []) {
-    const started = epoch;
-    for (let i = 0; i < files.length; i++) {
-      if (images.length >= MAX_IMAGES) {
-        store.error = `You can attach up to ${MAX_IMAGES} images at a time.`;
-        return;
-      }
-      try {
-        // Read `images` only after the await so concurrent adds don't overwrite each other.
-        const img = await prepareImage(files[i], names[i] ?? (files[i] as File).name ?? "image");
-        if (epoch !== started) return;
-        if (images.length >= MAX_IMAGES) {
-          store.error = `You can attach up to ${MAX_IMAGES} images at a time.`;
-          return;
-        }
-        images = [...images, img];
-      } catch (e) {
-        if (epoch !== started) return;
-        store.error = e instanceof Error ? e.message : String(e);
-      }
-    }
-  }
 
   function open(e: MouseEvent) {
     const menu = new Menu();
@@ -49,19 +19,7 @@
         .setTitle("Image from vault…")
         .setIcon("image")
         .onClick(() =>
-          new ImagePicker(obsidianApp(), IMAGE_EXTS, async (f) => {
-            const started = epoch;
-            if (images.length >= MAX_IMAGES) return void (store.error = `You can attach up to ${MAX_IMAGES} images.`);
-            try {
-              const img = await fromVault(obsidianApp(), f);
-              if (epoch !== started) return;
-              if (images.length >= MAX_IMAGES) return void (store.error = `You can attach up to ${MAX_IMAGES} images.`);
-              images = [...images, img];
-            } catch (err) {
-              if (epoch !== started) return;
-              store.error = err instanceof Error ? err.message : String(err);
-            }
-          }).open(),
+          new ImagePicker(obsidianApp(), IMAGE_EXTS, (f) => attachments.addFromVault(obsidianApp(), f)).open(),
         ),
     );
     menu.addItem((i) => i.setTitle("Tip: you can also paste or drop images").setIsLabel(true));
@@ -76,13 +34,14 @@
   multiple
   hidden
   onchange={async () => {
-    if (input?.files) await add([...input.files]);
+    if (input?.files) await attachments.add([...input.files]);
     if (input) input.value = "";
   }}
 />
 <button type="button" class="attach" title="Attach an image of your work" aria-label="Attach image" onclick={open}>
-  <Icon name="plus" size={22} stroke={1.7} />{#if images.length}<span class="n">{images.length}</span>{/if}
+  <Icon name="plus" size={22} stroke={1.7} />{#if attachments.images.length}<span class="n">{attachments.images.length}</span>{/if}
 </button>
+{#if attachments.preparing}<span class="preparing" role="status">Preparing image…</span>{/if}
 
 <style>
   .attach {
@@ -98,6 +57,11 @@
   .attach:hover {
     color: var(--text);
     background: var(--surface-2);
+  }
+  .preparing {
+    color: var(--text-3);
+    font-size: 0.82em;
+    white-space: nowrap;
   }
   .n {
     position: absolute;

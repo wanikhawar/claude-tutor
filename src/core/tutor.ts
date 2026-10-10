@@ -1,6 +1,7 @@
 // The teaching brain: prompts, JSON schemas and calls for every request made to Claude.
 
-import { ask, type ClaudeOptions } from "./claude";
+import type { RequestOptions } from "./cli";
+import { ask } from "./providers";
 import type {
   ImageInput,
   TeachReply,
@@ -40,14 +41,15 @@ const strList = { type: "array", items: { type: "string" } };
 const str = { type: "string" };
 
 function obj(properties: Record<string, unknown>) {
-  return { type: "object", properties, required: Object.keys(properties) };
+  // Every key required and nothing extra: Codex (OpenAI structured outputs) insists on both.
+  return { type: "object", properties, required: Object.keys(properties), additionalProperties: false };
 }
 
 // ---------------------------------------------------------------------------
 // Concept extraction
 
 export function extractConcepts(
-  c: ClaudeOptions,
+  c: RequestOptions,
   title: string,
   body: string,
   known: string[],
@@ -100,7 +102,7 @@ export interface FeynmanInput {
   followUp?: string;
 }
 
-export function evaluateFeynman(c: ClaudeOptions, i: FeynmanInput): Promise<FeynmanEval> {
+export function evaluateFeynman(c: RequestOptions, i: FeynmanInput): Promise<FeynmanEval> {
   const schema = obj({
     score: { type: "number", minimum: 0, maximum: 100 },
     passed: { type: "boolean" },
@@ -171,7 +173,7 @@ export interface QuizMisconception {
   text: string;
 }
 
-export function makeQuiz(c: ClaudeOptions, items: QuizMaterial[], misconceptions: QuizMisconception[], n: number): Promise<QuizSet> {
+export function makeQuiz(c: RequestOptions, items: QuizMaterial[], misconceptions: QuizMisconception[], n: number): Promise<QuizSet> {
   const schema = obj({
     questions: {
       type: "array",
@@ -207,7 +209,7 @@ ${material}`;
 }
 
 export function grade(
-  c: ClaudeOptions,
+  c: RequestOptions,
   q: Question,
   userAnswer: string,
   confidence: string,
@@ -257,7 +259,7 @@ ${userAnswer.trim() || (images.length ? "(see the attached image)" : "(blank)")}
 }
 
 export function check(
-  c: ClaudeOptions,
+  c: RequestOptions,
   question: string,
   key: string,
   misconception: string,
@@ -282,7 +284,7 @@ ${userAnswer.trim() || (images.length ? "(see the attached image)" : "(blank)")}
 // Free-form questions to the tutor
 
 export function chat(
-  c: ClaudeOptions,
+  c: RequestOptions,
   context: string,
   history: [boolean, string][],
   message: string,
@@ -321,7 +323,7 @@ export const TEACH_CONTROLS: Record<string, string> = {
 };
 
 export function teach(
-  c: ClaudeOptions,
+  c: RequestOptions,
   topic: string,
   notesContext: string,
   history: [boolean, string][],

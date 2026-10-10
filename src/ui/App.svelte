@@ -57,7 +57,8 @@
   {#if !store.snap}
     <div class="boot"><Clawd mood="thinking" size={88} /></div>
   {:else if !store.configured}
-    <Setup />
+    <!-- Scrolls inside the root, so the status-bar gap stays below it rather than in the middle. -->
+    <div class="page"><Setup /></div>
   {:else}
     <div class="shell">
       <NavRail />
@@ -137,7 +138,10 @@
 
 <style>
   .ct-root {
+    box-sizing: border-box;
     height: 100%;
+    /* Room for Obsidian's status bar where it floats over the view (set by the view). */
+    padding-bottom: var(--ct-status-gap, 0px);
     display: flex;
     flex-direction: column;
     position: relative;
@@ -155,6 +159,13 @@
     overflow: auto;
     /* Pages size themselves to the space beside the rail. */
     container-type: inline-size;
+    display: flex;
+    flex-direction: column;
+  }
+  .page {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
     display: flex;
     flex-direction: column;
   }

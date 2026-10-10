@@ -54,7 +54,83 @@ export function emptyProgress(): ProgressData {
   return { version: 1, nextId: 1, notes: {}, concepts: [], attempts: [], misconceptions: [] };
 }
 
+const isObject = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x);
+const isId = (x: unknown): x is number => Number.isInteger(x) && (x as number) > 0;
+const str = (x: unknown) => (typeof x === "string" ? x : "");
+const strOrNull = (x: unknown) => (typeof x === "string" ? x : null);
+const num = (x: unknown, fallback: number) => (typeof x === "number" && Number.isFinite(x) ? x : fallback);
+const strs = (x: unknown) => (Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : []);
+
+/**
+ * Read a saved progress file. Throws if it isn't one: valid JSON of the wrong shape (say
+ * `{"concepts":null}`) would otherwise crash the plugin later, with no backup made.
+ * What identifies a record (ids, note paths, names) must be right; any other field that
+ * studying or scheduling reads is given its default if it's missing or the wrong type.
+ */
+export function parseProgress(text: string): ProgressData {
+  const raw: unknown = JSON.parse(text);
+  const fail = (what: string): never => {
+    throw new Error(`not a progress file (${what})`);
+  };
+  if (!isObject(raw)) fail("not an object");
+  const v = raw as Record<string, unknown>;
+  // `read` returns undefined for a record that breaks the file.
+  const list = <T>(key: string, read: (x: Record<string, unknown>) => T | undefined): T[] => {
+    if (v[key] === undefined) return [];
+    if (!Array.isArray(v[key])) fail(`bad ${key}`);
+    return (v[key] as unknown[]).map((x) => {
+      const r = isObject(x) ? read(x) : undefined;
+      return r === undefined ? fail(`bad ${key}`) : r;
+    });
+  };
+  if (v.nextId !== undefined && !isId(v.nextId)) fail("bad nextId");
+  if (v.notes !== undefined && !isObject(v.notes)) fail("bad notes");
+  const notes: ProgressData["notes"] = {};
+  for (const [key, n] of Object.entries((v.notes ?? {}) as Record<string, unknown>)) {
+    if (!isObject(n) || typeof n.hash !== "string") fail("bad notes");
+    const note = n as Record<string, unknown>;
+    notes[key] = { ...note, hash: note.hash as string, indexed_at: str(note.indexed_at), v: typeof note.v === "number" ? note.v : undefined };
+  }
+  const concepts = list<Concept>("concepts", (c) =>
+    isId(c.id) && typeof c.note_path === "string" && typeof c.name === "string"
+      ? {
+          ...(c as unknown as Concept),
+          summary: str(c.summary),
+          prerequisites: strs(c.prerequisites),
+          excerpt: str(c.excerpt),
+          questions: strs(c.questions),
+          ease: num(c.ease, 2.5),
+          interval_days: num(c.interval_days, 0),
+          reps: num(c.reps, 0),
+          lapses: num(c.lapses, 0),
+          due: strOrNull(c.due),
+          mastery: num(c.mastery, 0),
+          last_reviewed: strOrNull(c.last_reviewed),
+        }
+      : undefined,
+  );
+  const misconceptions = list<Misconception>("misconceptions", (m) =>
+    isId(m.id) && typeof m.text === "string"
+      ? { ...(m as unknown as Misconception), concept_id: isId(m.concept_id) ? m.concept_id : null, resolved: m.resolved === true, ts: str(m.ts), source: typeof m.source === "string" ? m.source : undefined }
+      : undefined,
+  );
+  // An attempt without a time can't count towards anything, so it's left out.
+  const attempts = list<Attempt | null>("attempts", (a) =>
+    typeof a.ts === "string" ? { concept_id: isId(a.concept_id) ? a.concept_id : null, kind: str(a.kind), score: num(a.score, 0), ts: a.ts } : null,
+  ).filter((a): a is Attempt => a !== null);
+  // New ids must not collide with saved ones, even if nextId was lost.
+  const ids = [...concepts, ...misconceptions].map((x) => x.id);
+  const nextId = Math.max((v.nextId as number | undefined) ?? 1, ...ids.map((id) => id + 1));
+  return { ...(v as unknown as ProgressData), version: 1, nextId, notes, concepts, attempts, misconceptions };
+}
+
 export class Progress {
+  /**
+   * Concepts a re-read dropped (renamed or gone from the note), kept until the plugin
+   * reloads: a lesson step or quiz question may still be showing one. Not saved.
+   */
+  private dropped = new Map<number, Concept>();
+
   constructor(
     public data: ProgressData,
     /** Called after every change; the plugin debounces it into a file write. */
@@ -111,7 +187,11 @@ export class Progress {
         });
       }
     }
-    this.data.concepts = this.data.concepts.filter((c) => c.note_path !== notePath || keep.has(c.name));
+    this.data.concepts = this.data.concepts.filter((c) => {
+      const gone = c.note_path === notePath && !keep.has(c.name);
+      if (gone) this.dropped.set(c.id, c);
+      return !gone;
+    });
     this.data.notes[notePath] = { hash, indexed_at: new Date().toISOString(), v: EXTRACT_VERSION };
     this.changed();
   }
@@ -122,6 +202,11 @@ export class Progress {
 
   concept(id: number): Concept | undefined {
     return this.data.concepts.find((c) => c.id === id);
+  }
+
+  /** A concept a re-read dropped since the plugin loaded (see `dropped`). */
+  droppedConcept(id: number): Concept | undefined {
+    return this.dropped.get(id);
   }
 
   touch() {
@@ -138,6 +223,8 @@ export class Progress {
         any = true;
       }
     }
+    // Not saved, so no change to record: a quiz planned before the re-read still needs them.
+    for (const c of this.dropped.values()) c.note_path = remapPath(c.note_path, oldPath, newPath);
     for (const key of Object.keys(this.data.notes)) {
       const k = remapPath(key, oldPath, newPath);
       if (k !== key) {

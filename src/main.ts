@@ -3,9 +3,9 @@ import { rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { Backend } from "./backend";
 import { Library } from "./library";
-import { Progress, emptyProgress, type ProgressData } from "./core/progress";
+import { Progress, emptyProgress, parseProgress, type ProgressData } from "./core/progress";
 import { remapPath } from "./core/paths";
-import { DEFAULT_SETTINGS, TutorSettingTab, type TutorSettings } from "./settings";
+import { DEFAULT_SETTINGS, EFFORT_CHOICES, ensureModels, TutorSettingTab, type TutorSettings } from "./settings";
 import { TutorView, VIEW_TYPE } from "./view";
 import { store } from "./ui/lib/store.svelte";
 
@@ -31,6 +31,8 @@ export default class ClaudeTutorPlugin extends Plugin {
   settings: TutorSettings = { ...DEFAULT_SETTINGS };
   backend!: Backend;
   private progressFile = "";
+  /** progress.json couldn't be read or backed up: never write over it. */
+  private keepProgressFile = false;
   private pendingReloads = new Map<string, number>();
   private saveQueue: Promise<void> = Promise.resolve();
   private scheduleSave?: Debouncer<[], void>;
@@ -124,7 +126,18 @@ export default class ClaudeTutorPlugin extends Plugin {
       ...DEFAULT_SETTINGS,
       ...saved,
       resolvedModels: { ...DEFAULT_SETTINGS.resolvedModels, ...(saved.resolvedModels ?? {}) },
+      // Entries saved before Codex support have no provider: they're Claude Code's.
+      models: (saved.models ?? DEFAULT_SETTINGS.models).map((m) => ({ ...m, provider: m.provider ?? "claude" })),
+      discovered: (saved.discovered ?? []).map((m) => ({ ...m, provider: m.provider ?? "claude" })),
+      versions: { ...(saved.versions ?? {}) },
     };
+    // Settings from before the visible-model list: keep the model you were using on it.
+    if (!saved.models && saved.model !== undefined && !this.settings.models.some((m) => m.id === saved.model)) {
+      this.settings.models.push({ provider: "claude", id: saved.model, alias: "" });
+    }
+    ensureModels(this.settings);
+    // There's no "CLI default" effort any more: settings saved with it get the standard level.
+    if (!EFFORT_CHOICES.some((e) => e.id === this.settings.effort)) this.settings.effort = DEFAULT_SETTINGS.effort;
   }
 
   async saveSettings() {
@@ -133,19 +146,28 @@ export default class ClaudeTutorPlugin extends Plugin {
   }
 
   private async loadProgress(): Promise<ProgressData> {
+    const adapter = this.app.vault.adapter;
     try {
-      if (await this.app.vault.adapter.exists(this.progressFile)) {
-        return { ...emptyProgress(), ...(JSON.parse(await this.app.vault.adapter.read(this.progressFile)) as Partial<ProgressData>) };
-      }
+      if (await adapter.exists(this.progressFile)) return parseProgress(await adapter.read(this.progressFile));
     } catch (e) {
-      new Notice(`Claude Tutor: couldn't read progress.json (${e instanceof Error ? e.message : String(e)}). Starting fresh; the old file was kept.`);
-      await this.app.vault.adapter.copy(this.progressFile, `${this.progressFile}.bak`).catch(() => {});
+      const why = e instanceof Error ? e.message : String(e);
+      // A name not taken yet: copying never overwrites, so an older backup would block it.
+      let backup = `${this.progressFile}.bak`;
+      for (let i = 2; await adapter.exists(backup).catch(() => false); i++) backup = `${this.progressFile}.bak${i}`;
+      try {
+        await adapter.copy(this.progressFile, backup);
+        new Notice(`Claude Tutor: couldn't read progress.json (${why}). Starting fresh; the old file was kept as ${backup.split("/").pop()}.`);
+      } catch {
+        // Without a copy, saving would destroy the only one.
+        this.keepProgressFile = true;
+        new Notice(`Claude Tutor: couldn't read progress.json (${why}), or back it up. Progress won't be saved until it's fixed or removed.`, 0);
+      }
     }
     return emptyProgress();
   }
 
   private saveProgress(): Promise<void> {
-    if (!this.backend) return Promise.resolve();
+    if (!this.backend || this.keepProgressFile) return Promise.resolve();
     const data = JSON.stringify(this.backend.progress.data);
     const save = this.saveQueue.then(async () => {
       const tmp = `${this.progressFile}.tmp`;

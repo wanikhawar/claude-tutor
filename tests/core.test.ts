@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { clip, parseMarkdown, resolveWikilinks, splitFrontmatter } from "../src/core/notes";
 import { cleanPage, split, PART_CHARS } from "../src/core/pdf";
 import { EXTRACT_VERSION, Progress, conceptQuestion, emptyProgress } from "../src/core/progress";
 import { review } from "../src/core/srs";
 import { modelLabel, parseResult } from "../src/core/claude";
+import { DEFAULT_SETTINGS, TutorSettingTab, ensureModels, modelName } from "../src/settings";
+import { statusGap } from "../src/view";
 
 describe("notes", () => {
   it("strips frontmatter", () => {
@@ -185,5 +187,113 @@ describe("model names", () => {
     expect(modelLabel("claude-opus-5")).toBe("Opus 5");
     expect(modelLabel("claude-haiku-5-5-20260601")).toBe("Haiku 5.5");
     expect(modelLabel("some-other-model")).toBe("some-other-model");
+  });
+});
+
+describe("visible models", () => {
+  it("keeps the list non-empty and the current model on it", () => {
+    const s = structuredClone(DEFAULT_SETTINGS);
+    s.models = [];
+    s.model = "fable";
+    ensureModels(s);
+    expect(s.models.map((m) => m.id)).toEqual(["opus", "sonnet", "haiku"]);
+    expect(s.model).toBe("opus");
+  });
+
+  it("switches CLI when the current model's CLI has nothing visible", () => {
+    const s = structuredClone(DEFAULT_SETTINGS);
+    s.models = [{ provider: "codex", id: "gpt-6-sol", alias: "" }];
+    s.provider = "claude";
+    s.model = "opus";
+    ensureModels(s);
+    expect([s.provider, s.model]).toEqual(["codex", "gpt-6-sol"]);
+  });
+
+  it("names models by alias, then discovered name, then resolved id", () => {
+    const s = structuredClone(DEFAULT_SETTINGS);
+    s.models = [
+      { provider: "claude", id: "opus", alias: "Deep" },
+      { provider: "claude", id: "sonnet", alias: "" },
+      { provider: "claude", id: "", alias: "" },
+    ];
+    s.discovered = [
+      { provider: "claude", id: "sonnet", name: "Sonnet 5.5", desc: "", resolved: "claude-sonnet-5-5" },
+      { provider: "codex", id: "gpt-6-sol", name: "GPT-6-Sol", desc: "", resolved: "gpt-6-sol" },
+    ];
+    s.resolvedModels[""] = "claude-opus-5-5";
+    expect(modelName(s, "claude", "opus")).toBe("Deep");
+    expect(modelName(s, "claude", "sonnet")).toBe("Sonnet 5.5");
+    expect(modelName(s, "claude", "")).toBe("Default (Opus 5.5)");
+    expect(modelName(s, "claude", "claude-opus-4-8")).toBe("Opus 4.8");
+    expect(modelName(s, "codex", "gpt-6-sol")).toBe("GPT-6-Sol");
+    // An alias on one CLI's model doesn't leak onto another CLI's model with the same id.
+    expect(modelName(s, "codex", "opus")).toBe("opus");
+  });
+});
+
+describe("settings: models in the picker", () => {
+  /** The Claude model list as drawn, with saves that don't finish until we say so. */
+  function modelList() {
+    vi.stubGlobal("createFragment", () => ({}));
+    const settings = structuredClone(DEFAULT_SETTINGS);
+    let release!: () => void;
+    const saved = new Promise<void>((r) => (release = r));
+    const plugin = { settings, saveSettings: vi.fn(() => saved) };
+    const tab = new TutorSettingTab({} as never, plugin as never) as unknown as {
+      update: () => void;
+      providerDefinitions: (p: string) => { type?: string; onDelete?: (i: number) => void; onReorder?: (from: number, to: number) => void }[];
+    };
+    // Like Obsidian, a redraw hands out fresh callbacks built from the current list.
+    const draw = () => tab.providerDefinitions("claude").find((d) => d.type === "list")!;
+    let drawn = draw();
+    tab.update = () => (drawn = draw());
+    const list = { onDelete: (i: number) => drawn.onDelete!(i), onReorder: (from: number, to: number) => drawn.onReorder!(from, to) };
+    const ids = () => settings.models.map((m) => m.id);
+    return { list, ids, release };
+  }
+
+  it("keeps each removal when the next comes before the redraw", () => {
+    const { list, ids, release } = modelList();
+    expect(ids()).toEqual(["opus", "sonnet", "haiku"]);
+    // Both clicked before the first save finishes: Opus (row 0), then Sonnet (row 0 once Opus is gone).
+    list.onDelete(0);
+    list.onDelete(0);
+    expect(ids()).toEqual(["haiku"]);
+    release();
+    vi.unstubAllGlobals();
+  });
+
+  it("reads the next drag against the order on screen while a save is pending", () => {
+    const { list, ids, release } = modelList();
+    list.onReorder(0, 2); // Opus to the bottom: Sonnet, Haiku, Opus
+    list.onReorder(0, 1); // then Sonnet, now first on screen, down one
+    expect(ids()).toEqual(["haiku", "sonnet", "opus"]);
+    release();
+    vi.unstubAllGlobals();
+  });
+
+  it("moves the model that was dragged, even with another edit pending", () => {
+    const { list, ids, release } = modelList();
+    list.onDelete(1); // Sonnet
+    list.onReorder(1, 0); // Haiku, now second on screen, to the top
+    expect(ids()).toEqual(["haiku", "opus"]);
+    release();
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("status bar clearance", () => {
+  const box = (left: number, top: number, right: number, bottom: number) => ({ left, top, right, bottom, height: bottom - top });
+  const sidebar = box(700, 40, 1000, 600);
+
+  it("keeps clear of the floating status bar over the sidebar's bottom edge", () => {
+    expect(statusGap(sidebar, box(780, 574, 1000, 600))).toBe(26);
+  });
+
+  it("leaves no gap when the bar is elsewhere, hidden or missing", () => {
+    expect(statusGap(sidebar, box(0, 574, 690, 600))).toBe(0); // beside the view, e.g. a full-width theme bar under the main pane
+    expect(statusGap(sidebar, box(780, 600, 1000, 626))).toBe(0); // below the view
+    expect(statusGap(sidebar, box(0, 0, 0, 0))).toBe(0); // hidden
+    expect(statusGap(sidebar, undefined)).toBe(0); // pop-out window
   });
 });

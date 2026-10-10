@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import ClaudeTutorPlugin from "../src/main";
 import { store } from "../src/ui/lib/store.svelte";
 import * as tutor from "../src/core/tutor";
+import * as providers from "../src/core/providers";
+import { review } from "../src/core/srs";
 import { applyExclusions } from "../src/settings";
+import { emptyProgress, type ProgressData } from "../src/core/progress";
 import { fixture, file, folder, extracted, deferred, manifest } from "./helpers";
 import { FileSystemAdapter, type TFile } from "obsidian";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -35,6 +38,7 @@ function pluginFixture(paths?: string[]) {
   const internals = plugin as unknown as {
     progressFile: string;
     saveProgress(): Promise<void>;
+    loadProgress(): Promise<ProgressData>;
     registerVaultEvents(): void;
     withNote(file: TFile, then: (keys: string[], request: number) => void): Promise<void>;
   };
@@ -57,6 +61,73 @@ async function filesystemFixture() {
 }
 
 describe("progress persistence", () => {
+  it.each([
+    ['{"concepts":null}'],
+    ['{"concepts":[null]}'],
+    ['{"notes":{"a.md":null}}'],
+    ['{"misconceptions":[{"id":1,"text":null}]}'],
+    ['{"nextId":"7"}'],
+    ['[]'],
+  ])("starts fresh from a file of the wrong shape (%s) and keeps a backup", async (text) => {
+    const f = pluginFixture();
+    f.disk.set("progress.json", text);
+    expect(await f.internals.loadProgress()).toEqual(emptyProgress());
+    expect(f.disk.get("progress.json.bak")).toBe(text);
+  });
+
+  it("never copies over an older backup", async () => {
+    const f = pluginFixture();
+    f.disk.set("progress.json", "{broken");
+    f.disk.set("progress.json.bak", "older backup");
+    await f.internals.loadProgress();
+    expect(f.disk.get("progress.json.bak")).toBe("older backup");
+    expect(f.disk.get("progress.json.bak2")).toBe("{broken");
+  });
+
+  it("doesn't write over a file it couldn't read or back up", async () => {
+    const f = pluginFixture();
+    f.disk.set("progress.json", "{broken");
+    f.adapter.copy.mockRejectedValueOnce(new Error("Disk full"));
+    await f.internals.loadProgress();
+    await f.internals.saveProgress();
+    expect(f.disk.get("progress.json")).toBe("{broken");
+  });
+
+  it("gives every field studying reads its default when it's missing or the wrong type", async () => {
+    const f = pluginFixture();
+    f.disk.set("progress.json", JSON.stringify({
+      nextId: 5,
+      notes: { "a.md": { hash: "h", v: "2", indexed_at: null } },
+      concepts: [{ id: 1, note_path: "a.md", name: "Idea", summary: null, prerequisites: null, excerpt: 5, questions: "Why?", ease: "2.5",
+        interval_days: null, reps: null, due: 0, mastery: "high", last_reviewed: {}, extra: "kept" }],
+      attempts: [{ ts: "2026-10-10T09:00:00Z", score: "x", concept_id: "1" }, { score: 1 }],
+      misconceptions: [{ id: 3, text: "Oops", concept_id: "1", resolved: "yes", ts: null }],
+    }));
+    const data = await f.internals.loadProgress();
+    expect(data.concepts).toEqual([{ id: 1, note_path: "a.md", name: "Idea", summary: "", prerequisites: [], excerpt: "", questions: [], ease: 2.5,
+      interval_days: 0, reps: 0, lapses: 0, due: null, mastery: 0, last_reviewed: null, extra: "kept" }]);
+    expect(data.notes["a.md"]).toMatchObject({ hash: "h", indexed_at: "", v: undefined });
+    expect(data.attempts).toEqual([{ concept_id: null, kind: "", score: 0, ts: "2026-10-10T09:00:00Z" }]);
+    expect(data.misconceptions).toEqual([{ id: 3, text: "Oops", concept_id: null, resolved: false, ts: "", source: undefined }]);
+    // And the concept can be studied and scheduled.
+    const ask = vi.spyOn(providers, "ask").mockResolvedValue({});
+    const concept = data.concepts[0];
+    await tutor.evaluateFeynman({ path: "", model: "", cwd: "/tmp" }, { concept, question: "Why?", noteTitle: "A", noteBody: "", attempt: 0, explanation: "Because", previousGaps: [], peeked: false, stuck: false });
+    expect(ask).toHaveBeenCalled();
+    review(concept, 0.8);
+    expect(concept.reps).toBe(1);
+    expect(concept.due).toMatch(/^\d{4}-/);
+  });
+
+  it("keeps new ids clear of saved ones when nextId is missing", async () => {
+    const f = pluginFixture();
+    const concept = { id: 7, note_path: "a.md", name: "Idea", summary: "", prerequisites: [], excerpt: "", questions: [], ease: 2.5, interval_days: 0, reps: 0, lapses: 0, due: null, mastery: 0, last_reviewed: null };
+    f.disk.set("progress.json", JSON.stringify({ concepts: [concept], misconceptions: [{ id: 9, concept_id: 7, text: "x", resolved: false, ts: "" }] }));
+    const data = await f.internals.loadProgress();
+    expect(data.concepts).toEqual([concept]);
+    expect(data.nextId).toBe(10);
+  });
+
   it("atomically replaces an existing desktop save and serializes newer snapshots", async () => {
     const f = await filesystemFixture();
     const destination = join(f.dir, "progress.json");
@@ -367,5 +438,17 @@ describe("excluded folders", () => {
 
     applyExclusions(f.settings, before.excluded, before.files, ["Notes/Sub"]);
     expect(f.settings.studyFiles).toEqual(["Notes/a.md", "Other/c.md"]);
+  });
+});
+
+describe("settings migration", () => {
+  it("replaces the old 'CLI default' effort with Medium", async () => {
+    const plugin = new ClaudeTutorPlugin(fixture().app, manifest);
+    vi.spyOn(plugin, "loadData").mockResolvedValue({ effort: "" });
+    await plugin.loadSettings();
+    expect(plugin.settings.effort).toBe("medium");
+    vi.spyOn(plugin, "loadData").mockResolvedValue({ effort: "high" });
+    await plugin.loadSettings();
+    expect(plugin.settings.effort).toBe("high");
   });
 });

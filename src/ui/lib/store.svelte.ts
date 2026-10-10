@@ -1,6 +1,7 @@
 // Global UI state: library snapshot, navigation, background reading and Clawd's mood.
 import type { Backend } from "../../backend";
 import type { TutorSettings } from "../../settings";
+import type { Provider } from "../../core/cli";
 import { isDue, isNew } from "../../core/srs";
 import { Notice } from "obsidian";
 import { api, errText, obsidianApp, setBackend, type Concept, type Mood, type Snapshot } from "./api";
@@ -175,11 +176,12 @@ export class Store {
     return true;
   }
 
-  async setModel(model: string) {
+  async setModel(provider: Provider, model: string) {
+    this.settings().provider = provider;
     this.settings().model = model;
     await this.saveSettings();
     await this.refresh();
-    const name = this.snap?.modelNames[model] ?? model;
+    const name = this.snap?.models.find((m) => m.provider === provider && m.id === model)?.name ?? model;
     this.say("proud", model ? `Switched to ${name}. Same Clawd, different brain.` : `Using ${name}.`);
   }
 
@@ -188,7 +190,6 @@ export class Store {
     await this.saveSettings();
     await this.refresh();
     const lines: Record<string, string> = {
-      "": "Back to the default effort.",
       low: "Quick mode. I'll keep it snappy.",
       medium: "A little more thought, coming up.",
       high: "Thinking caps on.",

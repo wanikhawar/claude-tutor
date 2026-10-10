@@ -17,6 +17,10 @@
   --text-2: var(--text-muted);
   --text-3: var(--text-faint);
   --accent: #c96442;
+  /* Codex models' logo colour. */
+  --codex: #3b6fd9;
+  /* The filled part of the effort meter. */
+  --meter-fill: rgba(176, 141, 87, 0.4);
   --accent-hover: #b4583a;
   --accent-text: #ffffff;
   --accent-soft: rgba(201, 100, 66, 0.12);
@@ -47,6 +51,8 @@
 
 .theme-dark .ct-root {
   --accent: #d97757;
+  --codex: #6f9df5;
+  --meter-fill: rgba(232, 220, 196, 0.32);
   --accent-hover: #e48a6c;
   --accent-text: #1c1b1a;
   --accent-soft: rgba(217, 119, 87, 0.16);
@@ -514,4 +520,18 @@
   .ct-root .ct-composer-actions .ct-composer-hint + .ct-send {
     margin-left: auto;
   }
+}
+
+/* Settings → Models: model id in mono with an "In use" badge. */
+.ct-model-list .setting-item-description code {
+  font-size: 0.9em;
+}
+.ct-model-badge {
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(217, 119, 87, 0.16);
+  color: #d97757;
+  font-size: 0.85em;
+  font-weight: 600;
 }

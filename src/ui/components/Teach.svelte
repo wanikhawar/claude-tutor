@@ -4,11 +4,12 @@
 -->
 <script lang="ts">
   import { onMount, tick } from "svelte";
-  import { api, asMood, errText, isCancel, type Mood } from "../lib/api";
-  import { enterToSend, SEND_HINT } from "../lib/util";
+  import { api, asMood, errText, isCancel, obsidianApp, type Mood } from "../lib/api";
+  import { enterToSend, loadDraft, saveDraft, SEND_HINT } from "../lib/util";
   import { store } from "../lib/store.svelte";
   import { TEACH_CONTROLS } from "../../core/tutor";
-  import { imageFiles, toInputs, type Img } from "../lib/images";
+  import { Attachments } from "../lib/attachments.svelte";
+  import { imageFiles, toInputs } from "../lib/images";
   import Clawd from "./Clawd.svelte";
   import Icon from "./Icon.svelte";
   import Markdown from "./Markdown.svelte";
@@ -20,16 +21,19 @@
   type Msg =
     | { id: number; from: "me"; text: string; images?: string[] }
     | { id: number; from: "clawd"; md: string; mood: Mood }
-    | { id: number; from: "error"; text: string; retry: () => void };
+    /** `retry` is dropped once anything newer is sent: re-running it then would answer out of turn. */
+    | { id: number; from: "error"; text: string; retry: (() => void) | null };
 
-  let topic = $state("");
+  /** Unsent text in the topic box survives the view closing, like explanation drafts. */
+  const TOPIC_DRAFT = "teach:topic";
+  let topic = $state(loadDraft(obsidianApp(), TOPIC_DRAFT));
   let started = $state(false);
   let msgs = $state<Msg[]>([]);
   let busy = $state(false);
   let starting = $state(false);
   let draft = $state("");
-  let images = $state<Img[]>([]);
-  let attacher = $state<AttachButton>();
+  /** Images for the message being composed (the topic box's, then the lesson's). */
+  const att = new Attachments();
   let progress = $state(0);
   let stepTitle = $state("");
   let stage = $state<"intro" | "teaching" | "checking" | "wrap_up">("intro");
@@ -50,6 +54,8 @@
   const lastClawd = $derived([...msgs].reverse().find((m) => m.from === "clawd")?.id);
   const done = $derived(stage === "wrap_up");
   const waiting = $derived(busy || starting);
+  /** Anything that sends waits for Clawd, and for images still being prepared. */
+  const held = $derived(waiting || att.preparing > 0);
 
   const suggestions = $derived(
     [...store.weakConcepts(), ...store.dueConcepts()]
@@ -70,9 +76,8 @@
 
   /** Send one turn: the learner's text (or a button's control message) plus any images. */
   async function send(text: string, shown: string, control = "") {
-    if (busy || starting) return;
-    const taken = images;
-    images = [];
+    if (held) return;
+    const taken = att.take();
     const imgs = toInputs(taken);
     const sentId = nextId;
     if (shown || taken.length) push({ from: "me", text: shown, images: taken.map((i) => i.url) });
@@ -80,6 +85,7 @@
     const histText = (shown || text) + (taken.length ? " [attached an image]" : "");
     const turn = async () => {
       if (busy || starting) return;
+      for (const m of msgs) if (m.from === "error") m.retry = null;
       // The composer gets disabled while Clawd thinks; keep focus in the view so Esc still cancels.
       const hadFocus = !!rootEl?.contains(document.activeElement);
       busy = true;
@@ -107,7 +113,7 @@
           // Put back what was sent so it can be edited. Control buttons (hint, show…) just vanish.
           msgs = msgs.filter((m) => m.id !== sentId);
           if (!control) draft = text;
-          images = taken;
+          att.restore(taken);
           if (!history.length) {
             // Cancelled the very first turn: back to the topic box.
             started = false;
@@ -130,11 +136,12 @@
   }
 
   async function start(t = topic) {
-    if (started || busy || starting) return;
+    if (started || held) return;
     topic = t.trim();
-    if (!topic && !images.length) return;
+    if (!topic && !att.images.length) return;
     if (!topic) topic = "the problem in my image";
     started = true;
+    saveDraft(obsidianApp(), TOPIC_DRAFT, "");
     starting = true;
     try {
       sources = await api.relevantNotes(topic);
@@ -150,7 +157,7 @@
 
   function submit() {
     const text = draft.trim();
-    if ((!text && !images.length) || busy || starting || done) return;
+    if ((!text && !att.images.length) || held || done) return;
     draft = "";
     void send(text, text);
   }
@@ -209,7 +216,6 @@
     if (busy || starting) return;
     lesson++;
     saving = false;
-    attacher?.discardPending();
     topic = "";
     started = false;
     msgs = [];
@@ -221,14 +227,14 @@
     sources = [];
     savedPath = null;
     draft = "";
-    images = [];
+    att.clear();
   }
 
   function onPaste(e: ClipboardEvent) {
     const files = imageFiles(e.clipboardData);
     if (files.length) {
       e.preventDefault();
-      void attacher?.add(files);
+      void att.add(files);
     }
   }
 
@@ -236,7 +242,7 @@
     const files = imageFiles(e.dataTransfer);
     if (files.length) {
       e.preventDefault();
-      void attacher?.add(files);
+      void att.add(files);
     }
   }
 
@@ -258,10 +264,17 @@
     }
   }
 
+  // Keep what's typed in the topic box if the view closes. Once the lesson starts it's sent;
+  // a failed or cancelled start puts the box back, and this saves it again.
+  $effect(() => {
+    if (!started) saveDraft(obsidianApp(), TOPIC_DRAFT, topic);
+  });
+
   onMount(() => {
     store.primaryHandlers.teach = primary;
     return () => {
       request?.abort();
+      att.clear();
       if (store.primaryHandlers.teach === primary) delete store.primaryHandlers.teach;
     };
   });
@@ -280,7 +293,7 @@
       </p>
       <div class="start-box">
         <div class="box ct-composer" onpaste={onPaste} ondrop={onDrop} ondragover={(e) => e.preventDefault()} role="group">
-          {#if images.length}<div class="box-imgs"><Thumbs {images} onremove={(i) => (images = images.filter((_, j) => j !== i))} /></div>{/if}
+          {#if att.images.length}<div class="box-imgs"><Thumbs images={att.images} onremove={(i) => att.remove(i)} /></div>{/if}
           <textarea
             bind:value={topic}
             rows="2"
@@ -289,9 +302,9 @@
             onkeydown={(e) => enterToSend(e, () => void start())}
           ></textarea>
           <div class="ct-composer-actions">
-            <AttachButton bind:this={attacher} bind:images />
+            <AttachButton attachments={att} />
             <span class="ct-composer-hint">{SEND_HINT}</span>
-            <SendButton label="Teach me" disabled={!topic.trim() && !images.length} onclick={() => start()} />
+            <SendButton label="Teach me" disabled={(!topic.trim() && !att.images.length) || held} onclick={() => start()} />
           </div>
         </div>
         <div class="ct-composer-footer">
@@ -319,7 +332,7 @@
       <div class="top-actions">
         <div class="ct-composer-settings wide-only"><ModelPicker /></div>
         {#if !done && history.length >= 4}
-          <button class="btn ghost sm" disabled={waiting} onclick={() => control("wrap")}>Wrap up</button>
+          <button class="btn ghost sm" disabled={held} onclick={() => control("wrap")}>Wrap up</button>
         {/if}
         <button class="btn ghost sm" disabled={waiting} onclick={newLesson}>New lesson</button>
       </div>
@@ -354,9 +367,12 @@
             <div class="clawd-row">
               <div class="avatar"><Clawd mood="confused" size={40} animate={false} /></div>
               <div class="bubble ct-card err">
-                <p><b>I couldn't reach Claude.</b></p>
+                <p><b>I couldn't get an answer.</b></p>
                 <p class="muted small">{m.text}</p>
-                <button class="btn sm" onclick={() => { msgs = msgs.filter((x) => x.id !== m.id); m.retry(); }}><Icon name="retry" size={15} />Try again</button>
+                {#if m.retry}
+                  {@const retry = m.retry}
+                  <button class="btn sm" disabled={waiting} onclick={() => { msgs = msgs.filter((x) => x.id !== m.id); retry(); }}><Icon name="retry" size={15} />Try again</button>
+                {/if}
               </div>
             </div>
           {/if}
@@ -389,7 +405,7 @@
       <footer class="composer">
         <div class="col">
           <div class="box ct-composer" onpaste={onPaste} ondrop={onDrop} ondragover={(e) => e.preventDefault()} role="group">
-            {#if images.length}<div class="box-imgs"><Thumbs {images} onremove={(i) => (images = images.filter((_, j) => j !== i))} /></div>{/if}
+            {#if att.images.length}<div class="box-imgs"><Thumbs images={att.images} onremove={(i) => att.remove(i)} /></div>{/if}
             <textarea
               bind:this={inputEl}
               bind:value={draft}
@@ -400,16 +416,16 @@
               onkeydown={(e) => enterToSend(e, submit)}
             ></textarea>
             <div class="ct-composer-actions">
-              <AttachButton bind:this={attacher} bind:images />
+              <AttachButton attachments={att} />
               <span class="ct-composer-hint">{SEND_HINT}</span>
-              <SendButton label="Send" disabled={waiting || (!draft.trim() && !images.length)} onclick={submit} />
+              <SendButton label="Send" disabled={held || (!draft.trim() && !att.images.length)} onclick={submit} />
             </div>
           </div>
           <div class="ct-composer-footer">
             <div class="ct-composer-options">
-              <button class="btn ghost sm self" disabled={waiting} onclick={() => control("hint")}><Icon name="bulb" size={15} />Hint</button>
-              <button class="btn ghost sm self show" disabled={waiting} onclick={() => control("show")}><Icon name="eye" size={15} />Show me</button>
-              <button class="btn ghost sm self got" disabled={waiting} onclick={() => control("next")}><Icon name="check" size={15} />I get it</button>
+              <button class="btn ghost sm self" disabled={held} onclick={() => control("hint")}><Icon name="bulb" size={15} />Hint</button>
+              <button class="btn ghost sm self show" disabled={held} onclick={() => control("show")}><Icon name="eye" size={15} />Show me</button>
+              <button class="btn ghost sm self got" disabled={held} onclick={() => control("next")}><Icon name="check" size={15} />I get it</button>
             </div>
             {#if busy}
               <button class="btn sm cancel" onclick={cancel} title="Stop this request (Esc)"><Icon name="x" size={14} />Cancel</button>

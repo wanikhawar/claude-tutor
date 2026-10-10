@@ -1,10 +1,10 @@
 // The UI's view of the backend.
 import type { App } from "obsidian";
-import type { Backend } from "../../backend";
+import type { Backend, ChatTurn } from "../../backend";
 import type { Confidence, Gap, ImageInput, Mood, Question } from "../../core/types";
 
 export type * from "../../core/types";
-export type { GradeOutcome, Mistake, NoteInfo, Snapshot } from "../../backend";
+export type { ChatTurn, GradeOutcome, Mistake, NoteInfo, Snapshot } from "../../backend";
 
 let backend: Backend;
 
@@ -51,6 +51,7 @@ export const api = {
     signal?: AbortSignal,
   ) => backend.gradeAnswer(question, choice, answer, confidence, images, signal),
   checkAnswer: (a: {
+    conceptId: number;
     question: string;
     key: string;
     misconception: string;
@@ -59,10 +60,11 @@ export const api = {
     images?: ImageInput[];
     signal?: AbortSignal;
   }) => backend.checkAnswer(a),
+  chatHistory: (history: ChatTurn[]) => backend.chatHistory(history),
   askTutor: (
     conceptId: number | null,
     situation: string,
-    history: [boolean, string][],
+    history: ChatTurn[],
     message: string,
     images: ImageInput[] = [],
     signal?: AbortSignal,

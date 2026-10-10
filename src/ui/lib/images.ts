@@ -51,6 +51,15 @@ export async function prepareImage(blob: Blob, name: string): Promise<Img> {
   return { id: nextId++, url, name, mediaType: out.type || "image/jpeg", data: url.slice(url.indexOf(",") + 1) };
 }
 
+/**
+ * The images of a cancelled message put back in front of any attached while it was being
+ * sent, up to the limit. `dropped` counts the newest ones that didn't fit.
+ */
+export function restoreImages(taken: Img[], current: Img[]): { images: Img[]; dropped: number } {
+  const all = [...taken, ...current.filter((i) => !taken.some((t) => t.id === i.id))];
+  return { images: all.slice(0, MAX_IMAGES), dropped: Math.max(0, all.length - MAX_IMAGES) };
+}
+
 export async function fromVault(app: App, file: TFile): Promise<Img> {
   const ext = file.extension.toLowerCase();
   const type = ext === "jpg" ? "image/jpeg" : `image/${ext}`;

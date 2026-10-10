@@ -1,7 +1,8 @@
 // What the UI calls, backed by the vault library and a JSON progress file.
 
 import { TFile, normalizePath, type App } from "obsidian";
-import type { ClaudeOptions } from "./core/claude";
+import type { Provider, RequestOptions } from "./core/cli";
+import { listModels } from "./core/providers";
 import { clip } from "./core/notes";
 import { Progress } from "./core/progress";
 import { review } from "./core/srs";
@@ -23,7 +24,7 @@ import {
   type Skipped,
 } from "./core/types";
 import type { Library } from "./library";
-import { MODEL_CHOICES, resolvedName, type TutorSettings } from "./settings";
+import { modelName, type TutorSettings } from "./settings";
 
 const STOPWORDS = new Set(
   "the and for with how why what when does work works about into from that this are was were you your teach explain learn understand want know".split(" "),
@@ -70,11 +71,15 @@ export interface Snapshot {
   streak: number;
   model: string;
   effort: string;
-  /** Display names of the exact models, by alias (e.g. sonnet → "Sonnet 5.5"). */
-  modelNames: Record<string, string>;
+  provider: Provider;
+  /** The models offered in the picker, in your order, with the names to show. */
+  models: { provider: Provider; id: string; name: string }[];
   autoIndex: boolean;
   confirmAbove: number;
 }
+
+/** One turn of an Ask Clawd chat: from the learner?, the text, and the concept it was about. */
+export type ChatTurn = [boolean, string, number | null];
 
 export interface GradeOutcome {
   grade: Grade;
@@ -113,23 +118,38 @@ export class Backend {
     for (const fn of this.listeners) fn();
   }
 
+  /** Ask a CLI which models it offers and remember the answer. */
+  async discoverModels(provider: Provider) {
+    const s = this.settings();
+    // Tied to the backend's lifetime: a plugin reload mid-discovery mustn't save over the new instance's settings.
+    const signal = this.requests.signal;
+    const { version, models } = await listModels(provider, { path: provider === "codex" ? s.codexPath : s.claudePath, cwd: this.claudeCwd, signal });
+    if (signal.aborted) return;
+    s.discovered = [...s.discovered.filter((m) => m.provider !== provider), ...models];
+    s.versions[provider] = version;
+    if (provider === "claude") for (const m of models) if (m.resolved) s.resolvedModels[m.id] = m.resolved;
+    await this.saveSettings();
+  }
+
   async rescan() {
     await this.library.loadAll();
     this.emit();
   }
 
-  private claude(signal?: AbortSignal): ClaudeOptions {
+  private claude(signal?: AbortSignal): RequestOptions {
     const s = this.settings();
     const alias = s.model;
+    const codex = s.provider === "codex";
     return {
-      path: s.claudePath,
+      provider: s.provider,
+      path: codex ? s.codexPath : s.claudePath,
       model: alias,
       effort: s.effort,
       cwd: this.claudeCwd,
       signal: signal ? AbortSignal.any([this.requests.signal, signal]) : this.requests.signal,
       // Remember which exact model the alias resolved to, so the picker can show it.
       onModel: (id) => {
-        if (s.resolvedModels[alias] === id) return;
+        if (codex || s.resolvedModels[alias] === id) return;
         s.resolvedModels[alias] = id;
         void this.saveSettings();
       },
@@ -151,10 +171,29 @@ export class Backend {
     return this.progress.conceptsFor(new Set(this.library.notes.keys()));
   }
 
+  /**
+   * Whether a note's text may go with a request: you picked it for Clawd to read, and it's
+   * still in your library. Checked on every request, so a source you remove stops being shared.
+   */
+  private shareable(key: string): boolean {
+    const path = key.replace(/#p\d+-\d+$/, "");
+    return this.progress.noteHash(key) !== undefined && this.library.inScope(path) && this.app.vault.getAbstractFileByPath(path) instanceof TFile;
+  }
+
+  /**
+   * A concept to send with a request. One that a re-read just dropped still counts: the step
+   * or question showing it was made before. Throws if its note is no longer in your library.
+   */
   private concept(id: number): Concept {
-    const c = this.progress.concept(id);
+    const c = this.progress.concept(id) ?? this.progress.droppedConcept(id);
     if (!c) throw new Error("That concept no longer exists.");
+    if (!this.shareable(c.note_path)) throw new Error("That note is no longer in your library.");
     return c;
+  }
+
+  /** Still in your progress: a re-read can drop a concept while a request about it runs. */
+  private current(c: Concept): boolean {
+    return this.progress.concept(c.id) === c;
   }
 
   private storeReview(c: Concept, score: number) {
@@ -200,7 +239,8 @@ export class Backend {
       streak: this.progress.streak(),
       model: s.model,
       effort: s.effort,
-      modelNames: Object.fromEntries(MODEL_CHOICES.map((m) => [m.id, resolvedName(s, m.id)])),
+      provider: s.provider,
+      models: s.models.map((m) => ({ provider: m.provider, id: m.id, name: modelName(s, m.provider, m.id) })),
       autoIndex: s.autoIndex,
       confirmAbove: s.confirmAbove,
     };
@@ -322,6 +362,8 @@ export class Backend {
     });
     const score = Math.min(1, Math.max(0, ev.score / 100));
     this.progress.logAttempt(a.conceptId, "feynman", score);
+    // You still get the feedback; there's just no concept left to schedule or note mistakes on.
+    if (!this.current(concept)) return ev;
     for (const g of ev.gaps.filter((g) => g.kind === "wrong")) this.progress.addMisconception(a.conceptId, g.issue, a.question);
     // Spaced repetition tracks first-try recall; peeking costs a little.
     if (a.attempt === 0) this.storeReview(concept, a.peeked ? score * 0.85 : score);
@@ -334,15 +376,17 @@ export class Backend {
    * "understood" = after feedback: their first-try score already set the schedule; just log it.
    */
   selfReport(conceptId: number, kind: "known" | "understood") {
-    const c = this.concept(conceptId);
+    // Nothing is sent, so a concept a re-read dropped just isn't scheduled.
+    const c = this.progress.concept(conceptId);
     this.progress.logAttempt(conceptId, `self-${kind}`, kind === "known" ? 0.7 : 0.6);
-    if (kind === "known") this.storeReview(c, 0.7);
+    if (c && kind === "known") this.storeReview(c, 0.7);
   }
 
   async makeQuiz(conceptIds: number[], count: number, signal?: AbortSignal): Promise<QuizSet> {
     const pool = conceptIds
-      .map((id) => this.progress.concept(id))
-      .filter((c): c is Concept => !!c)
+      // A quiz planned before a re-read can still be made: grading accepts dropped concepts too.
+      .map((id) => this.progress.concept(id) ?? this.progress.droppedConcept(id))
+      .filter((c): c is Concept => !!c && this.shareable(c.note_path))
       .slice(0, 8);
     if (!pool.length) throw new Error("No concepts to quiz on yet.");
     const perNote = Math.min(12_000, Math.max(4_000, Math.floor(NOTE_BUDGET / pool.length)));
@@ -413,8 +457,10 @@ export class Backend {
     let misconception_id: number | null = null;
     let score = Math.min(1, Math.max(0, grade.score / 100));
     if (!grade.correct && confidence === "sure") score = 0; // confidently wrong: bring it back soon
-    this.storeReview(concept, score);
     this.progress.logAttempt(concept.id, "quiz", score);
+    // A re-read dropped the concept while grading: there's nothing left to schedule.
+    if (!this.current(concept)) return { grade, misconception_id: null };
+    this.storeReview(concept, score);
     if (target && grade.correct) this.progress.resolveMisconception(target.id);
     if (!grade.correct) {
       if (grade.misconception_id !== null) misconception_id = grade.misconception_id;
@@ -424,6 +470,7 @@ export class Backend {
   }
 
   async checkAnswer(a: {
+    conceptId: number;
     question: string;
     key: string;
     misconception: string;
@@ -432,22 +479,39 @@ export class Backend {
     images?: ImageInput[];
     signal?: AbortSignal;
   }): Promise<CheckResult> {
+    this.concept(a.conceptId);
     const original = this.progress.openMisconceptions().find((m) => m.id === a.misconceptionId);
     const r = await tutor.check(this.claude(a.signal), a.question, a.key, original?.text ?? a.misconception, a.answer, a.images);
     if (r.understood && a.misconceptionId !== null) this.progress.resolveMisconception(a.misconceptionId);
     return r;
   }
 
+  /**
+   * The part of an Ask Clawd chat that may still be sent. A turn about a note that has left
+   * your library may quote it, and so may any turn after it, since each request carried the
+   * turns before. So the history stops before that turn. The chat keeps what this returns,
+   * so new turns are remembered again from there.
+   */
+  chatHistory(history: ChatTurn[]): ChatTurn[] {
+    const shared = (id: number | null) => {
+      const about = id === null ? undefined : (this.progress.concept(id) ?? this.progress.droppedConcept(id));
+      return id === null || (!!about && this.shareable(about.note_path));
+    };
+    const cut = history.findIndex(([, , id]) => !shared(id));
+    return cut < 0 ? history : history.slice(0, cut);
+  }
+
   /** Free-form question to the tutor. `situation` describes the current step. */
   async askTutor(
     conceptId: number | null,
     situation: string,
-    history: [boolean, string][],
+    history: ChatTurn[],
     message: string,
     images: ImageInput[] = [],
     signal?: AbortSignal,
   ): Promise<ChatReply> {
-    const c = conceptId !== null ? this.progress.concept(conceptId) : undefined;
+    const c = conceptId !== null ? this.concept(conceptId) : undefined;
+    const turns = this.chatHistory(history).map(([me, text]): [boolean, string] => [me, text]);
     let context: string;
     if (c) {
       const [title, body] = this.noteText(c.note_path, 20_000);
@@ -458,7 +522,7 @@ export class Backend {
         .map((x) => x.name);
       context = `${situation}\n\nConcepts in the learner's notes: ${names.join(", ")}`;
     }
-    return tutor.chat(this.claude(signal), context, history, message, images);
+    return tutor.chat(this.claude(signal), context, turns, message, images);
   }
 
   // -------------------------------------------------------------------------
@@ -472,7 +536,9 @@ export class Backend {
       .filter((w) => w.length > 2 && !STOPWORDS.has(w));
     if (!words.length) return [];
     const concepts = this.concepts();
-    const scored = [...this.library.notes.values()].map((n) => {
+    // Only notes you picked for Clawd to read: the matches are sent with the lesson.
+    const picked = [...this.library.notes.values()].filter((n) => this.shareable(n.key));
+    const scored = picked.map((n) => {
       const title = n.title.toLowerCase();
       const body = n.body.toLowerCase();
       const names = concepts
@@ -502,7 +568,13 @@ export class Backend {
     images: ImageInput[] = [],
     signal?: AbortSignal,
   ): Promise<TeachReply> {
+    // Earlier replies can quote a lesson's notes, and the history goes with every turn: a
+    // lesson whose note has left your library can't go on without sharing it again.
+    if (history.length && sources.some((k) => !this.shareable(k))) {
+      throw new Error("A note this lesson was based on is no longer in your library, so Clawd can't continue it. Start a new lesson.");
+    }
     const context = sources
+      .filter((k) => this.shareable(k))
       .map((k) => {
         const [title, body] = this.noteText(k, 8_000);
         return title ? `### Note "${title}"\n${body}` : "";
