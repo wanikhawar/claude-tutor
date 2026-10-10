@@ -5,7 +5,7 @@
 Learn the notes and PDFs in your vault with the **Feynman technique**. Your tutor is Clawd, a pixel tutor in glasses.
 You explain an idea in plain words; Clawd finds what's missing, wrong or hidden behind jargon, re-teaches just that,
 and quizzes you until it sticks. Claude runs through your **Claude Code login**, so your Pro/Max subscription works
-and you don't need an API key.
+and you don't need an API key. You can use OpenAI's models through the **Codex CLI** instead.
 
 What it does:
 
@@ -39,18 +39,23 @@ Every screenshot below is the real plugin running in Obsidian, graded live by Cl
 
 ## Requirements
 
-- Obsidian desktop 1.13+ (the plugin is desktop-only, because it runs the `claude` CLI). On Obsidian 1.8.7–1.12, Obsidian installs version 0.1.3 automatically.
+- Obsidian desktop 1.13+ (the plugin is desktop-only, because it runs the `claude` or `codex` CLI). On Obsidian 1.8.7–1.12, Obsidian installs version 0.1.3 automatically.
 - [Claude Code](https://claude.com/claude-code) installed and logged in. Run `claude` once in a terminal to sign in. The plugin finds it in the usual places (`~/.local/bin`, Homebrew, `/usr/local/bin`); if it doesn't, set the path in settings.
+- Or, for OpenAI's models, the [Codex CLI](https://github.com/openai/codex) installed and logged in (`codex login`). Pick it under **Settings → Claude Tutor**.
 - Optional: `poppler` (`pdftotext`) for the best PDF text.
 
 ## Install
 
-Once it's listed in Obsidian's community plugins: **Settings → Community plugins → Browse**, search for **Claude Tutor**, install and enable it.
+Claude Tutor is in Obsidian's community plugins: open **Settings → Community plugins → Browse**, search for
+**Claude Tutor**, then install and enable it. Obsidian keeps it up to date.
 
-Until then, download `main.js`, `manifest.json` and `styles.css` from the [latest release](https://github.com/wanikhawar/claude-tutor/releases/latest) into `<vault>/.obsidian/plugins/claude-tutor/`, then enable it under **Settings → Community plugins**.
+Then click the Clawd icon in the ribbon (or run the **Claude Tutor: Open** command) and pick your study folders.
+
+### Manually
+
+Download `main.js`, `manifest.json` and `styles.css` from the [latest release](https://github.com/wanikhawar/claude-tutor/releases/latest) into `<vault>/.obsidian/plugins/claude-tutor/`, then enable it under **Settings → Community plugins**.
 
 ### From source
-
 
 ```sh
 npm install
@@ -60,8 +65,7 @@ mkdir -p "$VAULT/.obsidian/plugins/claude-tutor"
 cp main.js manifest.json styles.css "$VAULT/.obsidian/plugins/claude-tutor/"
 ```
 
-Then in Obsidian: **Settings → Community plugins → turn on community plugins → enable Claude Tutor**, and click
-the Clawd icon in the ribbon (or run the **Claude Tutor: Open** command).
+Then enable it under **Settings → Community plugins**.
 
 For development, symlink the folder instead and run `npm run dev` to rebuild on save.
 
@@ -85,14 +89,14 @@ All data stays in the plugin folder (`.obsidian/plugins/claude-tutor/`):
 
 In your vault, the plugin only writes notes you ask for: **Teach → Save as note** creates a note in `Claude Tutor/Lessons/` (configurable).
 
-Nothing is sent anywhere except to Claude, through your own `claude` CLI: one request per note read, and one per answer graded.
+Nothing is sent anywhere except to the model you chose, through your own `claude` or `codex` CLI: one request per note read, and one per answer graded.
 
 ## Disclosures
 
-- **Requires an Anthropic account.** Claude Tutor talks to Claude through [Claude Code](https://claude.com/claude-code), which needs a Claude subscription (Pro/Max) or API billing. Requests count against your plan's usage.
-- **Runs an external program.** The plugin starts your locally installed `claude` CLI (and `pdftotext`, if installed) as child processes, passing them your environment with common install folders added to `PATH` so they can be found when Obsidian is launched from the dock. That's why it's desktop-only.
-- **Filesystem access outside the vault API.** It checks the usual install locations for the `claude` binary, and replaces `progress.json` with an atomic rename so a crash can't leave it half-written. It doesn't read or write anything else outside your vault.
-- **Network use.** Note text, your answers and any images you attach are sent to Anthropic by the `claude` CLI, to evaluate explanations, write quizzes and reply. The plugin itself makes no other network requests and has no telemetry.
+- **Requires an Anthropic or OpenAI account.** Claude Tutor talks to Claude through [Claude Code](https://claude.com/claude-code), which needs a Claude subscription (Pro/Max) or API billing; or to OpenAI's models through the [Codex CLI](https://github.com/openai/codex), which needs a ChatGPT plan or an OpenAI API key. Requests count against your plan's usage.
+- **Runs an external program.** The plugin starts your locally installed `claude` or `codex` CLI (and `pdftotext`, if installed) as child processes, passing them your environment with common install folders added to `PATH` so they can be found when Obsidian is launched from the dock. That's why it's desktop-only.
+- **Filesystem access outside the vault API.** It checks the usual install locations for the `claude` and `codex` binaries, and replaces `progress.json` with an atomic rename so a crash can't leave it half-written. With Codex, each request runs in a temporary folder (holding its instructions and any attached images) next to a temporary Codex home that links to your Codex login (`~/.codex/auth.json`), so your global Codex instructions and skills aren't sent with your notes; both are deleted when the request ends. It doesn't read or write anything else outside your vault.
+- **Network use.** Note text, your answers and any images you attach are sent to Anthropic by the `claude` CLI, or to OpenAI by the `codex` CLI, to evaluate explanations, write quizzes and reply. Replies can't load anything from the web: remote images in them become links. The plugin itself makes no other network requests and has no telemetry.
 - **Lists your vault's files.** To find notes in your study folders, and to offer notes and folders in the **Add note or PDF** / **Add folder** pickers, the plugin lists the files in your vault. It only reads the contents of notes in your study folders (or notes you add one by one).
 - **Verifiable releases.** Release files are built by GitHub Actions from this repository and carry [build provenance attestations](https://github.com/wanikhawar/claude-tutor/attestations); check one with `gh attestation verify main.js -R wanikhawar/claude-tutor`.
 - **Not affiliated with Anthropic.** This is an independent, community plugin.
@@ -112,5 +116,5 @@ npm run dev                                     # rebuild main.js on change
 | `src/main.ts` | Plugin: view, ribbon, commands, file menu, vault sync, progress file |
 | `src/backend.ts` | What the UI calls: indexing, explain/quiz/grade/check, Ask Clawd |
 | `src/library.ts` | Study scope, Markdown/PDF loading, PDF cache |
-| `src/core/` | Pure TypeScript: Claude bridge, prompts, SM-2, notes, PDF reflow/split, progress store |
+| `src/core/` | Pure TypeScript: Claude Code and Codex bridges, prompts, SM-2, notes, PDF reflow/split, progress store |
 | `src/ui/` | Svelte 5 UI (Markdown and MathJax rendered by Obsidian) |
