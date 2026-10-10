@@ -103,6 +103,8 @@ Nothing is sent anywhere except to the model you chose, through your own `claude
 
 ## Development
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to set up, test and send changes.
+
 ```sh
 npm install
 npm run build                                   # type-checks, then writes main.js
