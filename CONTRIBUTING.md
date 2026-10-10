@@ -72,7 +72,7 @@ The [Development](README.md#development) section of the README maps out the sour
 ## Pull requests
 
 - Keep each pull request to one change, and describe what it does and how you tested it.
-- Add screenshots for UI changes, in light and dark mode.
+- Add screenshots for UI changes.
 - Write commit messages in the imperative, like the existing history ("Only read the notes you pick").
 - Don't bump the version or edit `manifest.json` / `versions.json`; that happens at release time.
 
