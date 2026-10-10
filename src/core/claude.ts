@@ -5,7 +5,7 @@
 // a schema. MCP servers, skills and user settings are disabled so per-call overhead
 // stays around 1k tokens. Running the process itself is shared with Codex (./cli).
 
-import { findBinary, runCli, type DiscoveredModel, type ModelList, type RequestOptions } from "./cli";
+import { findBinary, runCli, type ModelList, type RequestOptions } from "./cli";
 import type { ImageInput } from "./types";
 
 export function findClaude(configured: string): string {
@@ -84,7 +84,7 @@ export function parseModelList(stdout: string): ModelList | null {
     if (!line.trim().startsWith("{")) continue;
     let v: { type?: string; response?: { request_id?: string; response?: Record<string, unknown> } };
     try {
-      v = JSON.parse(line);
+      v = JSON.parse(line) as typeof v;
     } catch {
       continue;
     }

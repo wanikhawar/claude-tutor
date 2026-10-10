@@ -151,7 +151,7 @@ export function parseCodexResult<T>(stdout: string, stderr: string, code: number
     if (!line.trim().startsWith("{")) continue;
     let v: { type?: string; message?: string; error?: { message?: string }; item?: { type?: string; text?: string } };
     try {
-      v = JSON.parse(line);
+      v = JSON.parse(line) as typeof v;
     } catch {
       continue;
     }
@@ -222,7 +222,7 @@ export function parseCodexModelList(stdout: string): { version: string; models: 
     if (!line.trim().startsWith("{")) continue;
     let v: Reply;
     try {
-      v = JSON.parse(line);
+      v = JSON.parse(line) as typeof v;
     } catch {
       continue;
     }

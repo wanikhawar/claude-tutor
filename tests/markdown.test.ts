@@ -9,6 +9,18 @@ import { fixture } from "./helpers";
 
 // Obsidian adds this to every element.
 Object.defineProperty(HTMLElement.prototype, "empty", { configurable: true, value() { this.replaceChildren(); } });
+// And this global (only the options the plugin uses).
+Object.assign(globalThis, {
+  createEl(tag: string, o: { cls?: string; href?: string; title?: string; text?: string; attr?: Record<string, string> } = {}) {
+    const el = document.createElement(tag);
+    if (o.cls) el.className = o.cls;
+    if (o.href) el.setAttribute("href", o.href);
+    if (o.title) el.title = o.title;
+    if (o.text) el.textContent = o.text;
+    for (const [k, v] of Object.entries(o.attr ?? {})) el.setAttribute(k, v);
+    return el;
+  },
+});
 
 afterEach(() => {
   vi.restoreAllMocks();

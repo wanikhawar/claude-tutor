@@ -23,7 +23,7 @@ const LOCAL = /^(app|data|blob):/i;
 /** A copy of a rendered node that's safe to show. The copy is made and checked in the inert document. */
 function safeCopy(node: Node): Node {
   const doc = node.ownerDocument!;
-  const box = doc.createElement("div");
+  const box = doc.createDocumentFragment();
   box.append(node.cloneNode(true));
   for (const e of Array.from(box.querySelectorAll("*"))) {
     const name = e.localName.toLowerCase();
@@ -53,17 +53,16 @@ function safeCopy(node: Node): Node {
 
 /** A remote image as a link you can choose to open. */
 function imageLink(img: Element, src: string): Node {
-  const doc = img.ownerDocument;
   const alt = img.getAttribute("alt")?.trim() || "image";
-  if (!/^https?:/i.test(src.trim())) return doc.createTextNode(alt);
-  const a = doc.createElement("a");
-  a.className = "external-link";
-  a.setAttribute("href", src.trim());
-  a.setAttribute("target", "_blank");
-  a.setAttribute("rel", "noopener nofollow noreferrer");
-  a.setAttribute("title", src.trim());
-  a.textContent = alt;
-  return a;
+  if (!/^https?:/i.test(src.trim())) return img.ownerDocument.createTextNode(alt);
+  // A link fetches nothing until it's clicked, so it can be made outside the inert document.
+  return createEl("a", {
+    cls: "external-link",
+    href: src.trim(),
+    title: src.trim(),
+    text: alt,
+    attr: { target: "_blank", rel: "noopener nofollow noreferrer" },
+  });
 }
 
 /**
@@ -77,7 +76,7 @@ function imageLink(img: Element, src: string): Node {
  * the original, so Obsidian's own buttons (copy code, fold a callout) still work.
  */
 export function renderMarkdown(app: App, md: string, target: HTMLElement, owner: Component, inline = false): () => void {
-  const inert = document.implementation.createHTMLDocument("").createElement("div");
+  const inert = document.implementation.createHTMLDocument("").body;
   const source = (): Node => {
     const only = inert.firstElementChild;
     return inline && inert.childNodes.length === 1 && only?.tagName === "P" ? only : inert;
