@@ -49,10 +49,21 @@
   const q = $derived(query.trim().toLowerCase());
   /** Expand everything while searching or filtering, so matches are visible. */
   const narrowed = $derived(!!q || filter !== "all");
+  /** The concepts that pass the filter, by note: one pass, not one per note. */
+  const byNote = $derived.by(() => {
+    const out = new Map<string, Concept[]>();
+    for (const c of store.concepts) {
+      if (!matches(c)) continue;
+      const list = out.get(c.note_path);
+      if (list) list.push(c);
+      else out.set(c.note_path, [c]);
+    }
+    return out;
+  });
   const groups = $derived(
     store.notes
       .map((n) => {
-        const concepts = store.concepts.filter((c) => c.note_path === n.key && matches(c));
+        const concepts = byNote.get(n.key) ?? [];
         const noteHit = !q || n.title.toLowerCase().includes(q);
         const shown = noteHit ? concepts : concepts.filter((c) => c.name.toLowerCase().includes(q));
         const visible = filter === "all" ? noteHit || shown.length > 0 : shown.length > 0;

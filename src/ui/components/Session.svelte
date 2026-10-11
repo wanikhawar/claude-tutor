@@ -20,6 +20,7 @@
     type Mood,
     type Question,
   } from "../lib/api";
+  import { isMcq } from "../../core/types";
   import { store, isNew, type Plan, type Step } from "../lib/store.svelte";
   import { conceptQuestion } from "../../core/progress";
   import Clawd from "./Clawd.svelte";
@@ -30,12 +31,12 @@
   import GradeCard from "./GradeCard.svelte";
   import Ring from "./Ring.svelte";
   import ModelPicker from "./ModelPicker.svelte";
-  import AttachButton from "./AttachButton.svelte";
+  import Composer from "./Composer.svelte";
   import SendButton from "./SendButton.svelte";
   import Thumbs from "./Thumbs.svelte";
   import { Attachments } from "../lib/attachments.svelte";
-  import { imageFiles, toInputs, type Img } from "../lib/images";
-  import { enterToSend, loadDraft, masteryColor, masteryLevel, relativeDue, saveDraft, scoreColor, SEND_HINT } from "../lib/util";
+  import { toInputs, type Img } from "../lib/images";
+  import { loadDraft, masteryColor, masteryLevel, relativeDue, saveDraft, scoreColor } from "../lib/util";
 
   let { plan }: { plan: Plan } = $props();
 
@@ -92,23 +93,6 @@
     return { inputs: toInputs(taken), urls: taken.map((i) => i.url), taken };
   }
 
-  function onPaste(e: ClipboardEvent) {
-    const files = imageFiles(e.clipboardData);
-    if (files.length) {
-      e.preventDefault();
-      void att.add(files);
-    }
-  }
-
-  function onDrop(e: DragEvent) {
-    const files = imageFiles(e.dataTransfer);
-    if (files.length) {
-      e.preventDefault();
-      e.stopPropagation();
-      void att.add(files);
-    }
-  }
-
   /** The focused question being asked in the current explain step. */
   let question = $state("");
   let inputEl = $state<HTMLTextAreaElement>();
@@ -136,7 +120,7 @@
   let nextId = 1;
   let activeQuestionId = $state<number | null>(null);
 
-  const lastClawd = $derived([...msgs].reverse().find((m) => m.kind !== "me" && m.kind !== "divider")?.id);
+  const lastClawd = $derived(msgs.findLast((m) => m.kind !== "me" && m.kind !== "divider")?.id);
 
   /** Cards that can be taller than the viewport open at their top, not their bottom. */
   const TALL = ["feedback", "grade", "question", "summary"];
@@ -412,10 +396,6 @@
     activeQuestionId = push({ kind: "question", q: questions[idx], n: idx + 1, total: questions.length, answered: null, mood: "curious" });
     if (!isMcq(questions[idx])) void focusInput();
     else void tick().then(() => rootEl?.focus({ preventScroll: true }));
-  }
-
-  function isMcq(q: Question) {
-    return q.kind === "mcq" && q.options.length > 0;
   }
 
   const currentQ = $derived(phase.p === "quiz" ? phase.questions[phase.idx] : null);
@@ -880,24 +860,16 @@
           </div>
         {/if}
       {:else if mode === "ask" && canAsk}
-        <form class="ask" onsubmit={(e) => { e.preventDefault(); sendAsk(); }} onpaste={onPaste} ondrop={onDrop} ondragover={(e) => e.preventDefault()}>
-          <div class="ct-composer">
-            {#if att.images.length}<div class="box-imgs"><Thumbs images={att.images} onremove={(i) => att.remove(i)} /></div>{/if}
-            <textarea
-              class="ask-input"
-              rows="1"
-              bind:value={ask}
-              aria-label="Ask Clawd"
-              placeholder="Ask anything, e.g. “why does that matter?” or “give me another example”"
-              onkeydown={(e) => enterToSend(e, sendAsk)}
-            ></textarea>
-            <div class="ct-composer-actions">
-              <AttachButton attachments={att} />
-              <span class="ct-composer-hint">{SEND_HINT}</span>
-              <SendButton label="Send message" type="submit" disabled={(!ask.trim() && !att.images.length) || preparing} />
-            </div>
-          </div>
-        </form>
+        <Composer
+          form="ask"
+          compact
+          bind:value={ask}
+          attachments={att}
+          label="Ask Clawd"
+          placeholder="Ask anything, e.g. “why does that matter?” or “give me another example”"
+          sendLabel="Send message"
+          onsend={sendAsk}
+        />
       {:else if explainPhase}
         {#if explainPhase.attempt >= 3}
           <p class="nudge">
@@ -908,23 +880,16 @@
         {#if turnPrompt}
           <p class="turn" id="turn-prompt"><Icon name="chat" size={14} /><span><b>Your turn:</b> <Markdown md={turnPrompt} inline /></span></p>
         {/if}
-        <div class="box ct-composer" onpaste={onPaste} ondrop={onDrop} ondragover={(e) => e.preventDefault()} role="group">
-          {#if att.images.length}<div class="box-imgs"><Thumbs images={att.images} onremove={(i) => att.remove(i)} /></div>{/if}
-          <textarea
-            bind:this={inputEl}
-            bind:value={draft}
-            rows="2"
-            aria-label="Your explanation"
-            aria-describedby={turnPrompt ? "turn-prompt" : undefined}
-            placeholder={turnPrompt ? "Answer Clawd's prompt above…" : explainPhase.attempt ? "Explain it again, fixing the gaps…" : "Your explanation, in your own words…"}
-            onkeydown={(e) => enterToSend(e, () => submitExplain())}
-          ></textarea>
-          <div class="ct-composer-actions">
-            <AttachButton attachments={att} />
-            <span class="ct-composer-hint">{SEND_HINT}</span>
-            <SendButton label={explainPhase.attempt ? "Explain again" : "Submit"} disabled={(!draft.trim() && !att.images.length) || preparing} onclick={() => submitExplain()} />
-          </div>
-        </div>
+        <Composer
+          bind:value={draft}
+          bind:input={inputEl}
+          attachments={att}
+          label="Your explanation"
+          describedby={turnPrompt ? "turn-prompt" : undefined}
+          placeholder={turnPrompt ? "Answer Clawd's prompt above…" : explainPhase.attempt ? "Explain it again, fixing the gaps…" : "Your explanation, in your own words…"}
+          sendLabel={explainPhase.attempt ? "Explain again" : "Submit"}
+          onsend={() => submitExplain()}
+        />
         <div class="ct-composer-footer">
           <div class="ct-composer-options">
             {#if explainPhase.attempt === 0 && !explainPhase.peeked}
@@ -949,22 +914,15 @@
       {:else if phase.p === "quiz" && currentQ}
         {#if phase.stage === "answer"}
           {#if !isMcq(currentQ)}
-            <div class="box ct-composer" onpaste={onPaste} ondrop={onDrop} ondragover={(e) => e.preventDefault()} role="group">
-              {#if att.images.length}<div class="box-imgs"><Thumbs images={att.images} onremove={(i) => att.remove(i)} /></div>{/if}
-              <textarea
-                bind:this={inputEl}
-                bind:value={draft}
-                rows="2"
-                aria-label="Your answer"
-                placeholder="Your answer… (or attach a photo of your working)"
-                onkeydown={(e) => enterToSend(e, submitAnswer)}
-              ></textarea>
-              <div class="ct-composer-actions">
-                <AttachButton attachments={att} />
-                <span class="ct-composer-hint">{SEND_HINT}</span>
-                <SendButton label="Submit" disabled={(!draft.trim() && !att.images.length) || preparing} onclick={submitAnswer} />
-              </div>
-            </div>
+            <Composer
+              bind:value={draft}
+              bind:input={inputEl}
+              attachments={att}
+              label="Your answer"
+              placeholder="Your answer… (or attach a photo of your working)"
+              sendLabel="Submit"
+              onsend={submitAnswer}
+            />
           {/if}
           <div class="ct-composer-footer">
             <span class="faint small" id="conf-label">How sure?</span>
@@ -986,22 +944,15 @@
             {/if}
           </div>
         {:else if phase.stage === "check"}
-          <div class="box ct-composer" onpaste={onPaste} ondrop={onDrop} ondragover={(e) => e.preventDefault()} role="group">
-            {#if att.images.length}<div class="box-imgs"><Thumbs images={att.images} onremove={(i) => att.remove(i)} /></div>{/if}
-            <textarea
-              bind:this={inputEl}
-              bind:value={draft}
-              rows="2"
-              aria-label="Your answer to the quick check"
-              placeholder="Answer the quick check…"
-              onkeydown={(e) => enterToSend(e, submitCheck)}
-            ></textarea>
-            <div class="ct-composer-actions">
-              <AttachButton attachments={att} />
-              <span class="ct-composer-hint">{SEND_HINT}</span>
-              <SendButton label="Check" disabled={(!draft.trim() && !att.images.length) || preparing} onclick={submitCheck} />
-            </div>
-          </div>
+          <Composer
+            bind:value={draft}
+            bind:input={inputEl}
+            attachments={att}
+            label="Your answer to the quick check"
+            placeholder="Answer the quick check…"
+            sendLabel="Check"
+            onsend={submitCheck}
+          />
           <div class="ct-composer-footer">
             <div class="ct-composer-options">
               <button class="btn ghost sm" title="Skip the check and go to the next question" onclick={nextQuestion}
@@ -1364,9 +1315,6 @@
       opacity: 1;
       transform: translateY(-3px);
     }
-  }
-  .box-imgs {
-    padding: 10px 10px 0;
   }
   .mine-imgs {
     margin-bottom: 6px;

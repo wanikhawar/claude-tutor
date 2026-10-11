@@ -21,6 +21,9 @@ function pendingSaves(): PendingSaves {
   return saves;
 }
 
+/** Markdown notes and PDFs: what Clawd can read. */
+const studyable = (file: TFile) => ["md", "pdf"].includes(file.extension.toLowerCase());
+
 // Clawd silhouette for the ribbon: body with glasses knocked out (monochrome, follows the theme).
 const CLAWD_ICON = `<mask id="ct-lenses"><rect width="100" height="100" fill="white"/><rect x="24" y="44" width="20" height="18" rx="3" fill="black"/><rect x="56" y="44" width="20" height="18" rx="3" fill="black"/></mask>
 <g fill="currentColor"><g mask="url(#ct-lenses)"><rect x="19" y="31" width="62" height="44"/><rect x="6" y="50" width="13" height="13"/><rect x="81" y="50" width="13" height="13"/></g>
@@ -221,7 +224,7 @@ export default class ClaudeTutorPlugin extends Plugin {
 
   /** Make sure a note is part of the library (adding it individually if needed), then run `then`. */
   private async withNote(file: TFile, then: (keys: string[], request: number) => void) {
-    if (!["md", "pdf"].includes(file.extension.toLowerCase())) {
+    if (!studyable(file)) {
       new Notice("Claude Tutor works with Markdown notes and PDFs.");
       return;
     }
@@ -286,7 +289,7 @@ export default class ClaudeTutorPlugin extends Plugin {
   private registerFileMenu() {
     this.registerEvent(
       this.app.workspace.on("file-menu", (menu: Menu, file: TAbstractFile) => {
-        if (!(file instanceof TFile) || !["md", "pdf"].includes(file.extension.toLowerCase())) return;
+        if (!(file instanceof TFile) || !studyable(file)) return;
         menu.addItem((i) =>
           i
             .setTitle("Quiz me on this (Claude Tutor)")
@@ -321,16 +324,11 @@ export default class ClaudeTutorPlugin extends Plugin {
         })(), 2000),
       );
     };
-    this.registerEvent(
-      this.app.vault.on("modify", (f) => {
-        if (f instanceof TFile && lib.inScope(f.path)) reload(f);
-      }),
-    );
-    this.registerEvent(
-      this.app.vault.on("create", (f) => {
-        if (f instanceof TFile && lib.inScope(f.path)) reload(f);
-      }),
-    );
+    const changed = (f: TAbstractFile) => {
+      if (f instanceof TFile && lib.inScope(f.path)) reload(f);
+    };
+    this.registerEvent(this.app.vault.on("modify", changed));
+    this.registerEvent(this.app.vault.on("create", changed));
     this.registerEvent(
       this.app.vault.on("delete", (f) => {
         lib.removeFile(f.path);

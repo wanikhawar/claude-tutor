@@ -77,9 +77,9 @@ export const api = {
   reopenMistake: async (id: number) => backend.reopenMistake(id),
 };
 
-/** True when a Claude request failed because the learner cancelled it. */
+/** True when a request failed because it was cancelled (see `cancelled` in core/cli). */
 export function isCancel(e: unknown): boolean {
-  return (e instanceof Error && e.name === "AbortError") || errText(e) === "Claude request cancelled.";
+  return e instanceof Error && e.name === "AbortError";
 }
 
 export function errText(e: unknown): string {

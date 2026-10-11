@@ -46,6 +46,29 @@ export interface DiscoveredModel {
 
 export type ModelList = { version: string; models: DiscoveredModel[] };
 
+export const str = (x: unknown) => (typeof x === "string" ? x : "");
+
+/** The JSON objects in a CLI's line-by-line output; lines that aren't one are skipped. */
+export function* jsonLines<T = Record<string, unknown>>(stdout: string): Generator<T> {
+  for (const line of stdout.split("\n")) {
+    if (!line.trim().startsWith("{")) continue;
+    let v: T;
+    try {
+      v = JSON.parse(line) as T;
+    } catch {
+      continue;
+    }
+    yield v;
+  }
+}
+
+/** What a cancelled request fails with. Named like a DOM abort, so the UI can tell it from a failure. */
+export function cancelled(who: string): Error {
+  const e = new Error(`${who} request cancelled.`);
+  e.name = "AbortError";
+  return e;
+}
+
 /** GUI apps often start without the user's shell PATH, so look in the usual install spots. */
 export function findBinary(configured: string, name: string, homeDirs: string[] = []): string {
   if (configured.trim()) return configured.trim();
@@ -89,7 +112,7 @@ export interface CliRun<T> {
 /** Run a CLI once. Settles exactly once: with a result, or on failure, cancellation or timeout. */
 export function runCli<T>(r: CliRun<T>): Promise<T> {
   return new Promise((resolve, reject) => {
-    if (r.signal?.aborted) return reject(new Error(`${r.who} request cancelled.`));
+    if (r.signal?.aborted) return reject(cancelled(r.who));
     const child = spawn(r.bin, r.args, { cwd: r.cwd, env: r.env ?? childEnv(), stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
@@ -111,7 +134,7 @@ export function runCli<T>(r: CliRun<T>): Promise<T> {
         fail(e);
       }
     };
-    const abort = () => fail(new Error(`${r.who} request cancelled.`));
+    const abort = () => fail(cancelled(r.who));
     const timer = window.setTimeout(() => fail(new Error(r.timeoutMessage)), r.timeoutMs);
     r.signal?.addEventListener("abort", abort, { once: true });
 

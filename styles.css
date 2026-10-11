@@ -504,7 +504,7 @@
   max-height: 40vh;
   overflow-y: auto;
 }
-.ct-root .ct-composer textarea.ask-input {
+.ct-root .ct-composer textarea.compact {
   min-height: 44px;
 }
 .ct-root .ct-composer-actions .ct-composer-hint {

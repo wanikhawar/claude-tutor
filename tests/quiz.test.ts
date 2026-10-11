@@ -171,6 +171,15 @@ describe("what goes with a request", () => {
     expect(teach.mock.calls[0][2]).not.toContain("private journal");
   });
 
+  it("ranks a note about the topic above one that only repeats the word", () => {
+    const f = fixture(["mentions.md", "about.md"]);
+    f.library.notes.get("mentions.md")!.body = "entropy ".repeat(20);
+    Object.assign(f.library.notes.get("about.md")!, { title: "Entropy", body: "Disorder grows." });
+    f.progress.saveConcepts("mentions.md", "hash:mentions.md", [extracted("Heat")]);
+    f.progress.saveConcepts("about.md", "hash:about.md", [extracted("Entropy always grows")]);
+    expect(f.backend.relevantNotes("entropy")).toEqual(["about.md", "mentions.md"]);
+  });
+
   it("sends nothing from a source removed from the library, even mid-quiz", async () => {
     const f = setup();
     const id = f.progress.addMisconception(f.b.id, wrong.misconception);

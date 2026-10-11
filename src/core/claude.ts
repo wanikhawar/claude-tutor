@@ -5,7 +5,7 @@
 // a schema. MCP servers, skills and user settings are disabled so per-call overhead
 // stays around 1k tokens. Running the process itself is shared with Codex (./cli).
 
-import { findBinary, runCli, type ModelList, type RequestOptions } from "./cli";
+import { findBinary, jsonLines, runCli, str, type ModelList, type RequestOptions } from "./cli";
 import type { ImageInput } from "./types";
 
 export function findClaude(configured: string): string {
@@ -14,18 +14,17 @@ export function findClaude(configured: string): string {
 
 const RUN = { command: "claude", who: "Claude", product: "Claude Code" };
 
+/** No tools, settings, saved sessions or MCP servers: only the tutor's prompt goes in. */
+const ISOLATED = ["--tools", "", "--setting-sources", "", "--no-session-persistence", "--strict-mcp-config"];
+const STREAM_JSON = ["--input-format", "stream-json", "--output-format", "stream-json", "--verbose"];
+
 export function askClaude<T>(o: RequestOptions, system: string, prompt: string, schema: object, images: ImageInput[] = []): Promise<T> {
   // Images go in as content blocks via stream-json input; plain prompts use the simpler text mode.
   const streaming = images.length > 0;
   const args = [
     "-p",
-    ...(streaming ? ["--input-format", "stream-json", "--output-format", "stream-json", "--verbose"] : ["--output-format", "json"]),
-    "--tools",
-    "",
-    "--setting-sources",
-    "",
-    "--no-session-persistence",
-    "--strict-mcp-config",
+    ...(streaming ? STREAM_JSON : ["--output-format", "json"]),
+    ...ISOLATED,
     "--disable-slash-commands",
     "--system-prompt",
     system,
@@ -58,11 +57,10 @@ export function askClaude<T>(o: RequestOptions, system: string, prompt: string, 
  * no prompt is sent, so it costs nothing against your limits.
  */
 export function listClaudeModels(o: Pick<RequestOptions, "path" | "cwd" | "timeoutMs" | "signal">): Promise<ModelList> {
-  const args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--tools", "", "--setting-sources", "", "--no-session-persistence", "--strict-mcp-config"];
   return runCli({
     ...RUN,
     bin: findClaude(o.path),
-    args,
+    args: ["-p", ...STREAM_JSON, ...ISOLATED],
     cwd: o.cwd,
     signal: o.signal,
     timeoutMs: o.timeoutMs ?? 30_000,
@@ -80,18 +78,11 @@ export function listClaudeModels(o: Pick<RequestOptions, "path" | "cwd" | "timeo
 
 /** The model list from the `initialize` control response, or null if it hasn't arrived. */
 export function parseModelList(stdout: string): ModelList | null {
-  for (const line of stdout.split("\n")) {
-    if (!line.trim().startsWith("{")) continue;
-    let v: { type?: string; response?: { request_id?: string; response?: Record<string, unknown> } };
-    try {
-      v = JSON.parse(line) as typeof v;
-    } catch {
-      continue;
-    }
+  type Line = { type?: string; response?: { request_id?: string; response?: Record<string, unknown> } };
+  for (const v of jsonLines<Line>(stdout)) {
     if (v.type !== "control_response" || v.response?.request_id !== "models") continue;
     const r = v.response.response ?? {};
     const raw = Array.isArray(r.models) ? (r.models as Record<string, unknown>[]) : [];
-    const str = (x: unknown) => (typeof x === "string" ? x : "");
     const models = raw
       .map((m) => ({
         provider: "claude" as const,
@@ -128,18 +119,7 @@ export function userMessage(prompt: string, images: ImageInput[]): string {
 
 /** stream-json output: many JSON lines; the last `result` line has the same shape as `--output-format json`. */
 export function parseStreamResult<T>(stdout: string, stderr: string, code: number | null): { data: T; models: string[] } {
-  const results = stdout
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l.startsWith("{"))
-    .map((l) => {
-      try {
-        return JSON.parse(l) as Record<string, unknown>;
-      } catch {
-        return null;
-      }
-    })
-    .filter((v): v is Record<string, unknown> => v?.type === "result");
+  const results = [...jsonLines(stdout)].filter((v) => v.type === "result");
   if (!results.length) {
     const msg = stderr.trim() || stdout.trim().slice(-500) || "no output";
     throw new Error(`claude exited with code ${code}: ${msg}`);

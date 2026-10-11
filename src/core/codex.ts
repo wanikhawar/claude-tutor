@@ -9,7 +9,7 @@ import { existsSync } from "node:fs";
 import { link, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { childEnv, findBinary, runCli, type DiscoveredModel, type ModelList, type RequestOptions } from "./cli";
+import { cancelled, childEnv, findBinary, jsonLines, runCli, str, type DiscoveredModel, type ModelList, type RequestOptions } from "./cli";
 import type { ImageInput } from "./types";
 
 /** Features that only add agent tools; off, a request is about half the size. */
@@ -73,7 +73,7 @@ const EXT: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "
 
 /** One structured request through `codex exec`. Same contract as `askClaude`. */
 export async function askCodex<T>(o: RequestOptions, system: string, prompt: string, schema: object, images: ImageInput[] = []): Promise<T> {
-  if (o.signal?.aborted) throw new Error("Codex request cancelled.");
+  if (o.signal?.aborted) throw cancelled("Codex");
   // Schema, instructions and images go in as files; the prompt goes over stdin.
   const dir = await mkdtemp(join(tmpdir(), "claude-tutor-codex-"));
   let home: string | undefined;
@@ -147,14 +147,8 @@ export function parseCodexResult<T>(stdout: string, stderr: string, code: number
   let failed: string | undefined;
   // `error` events also report retries Codex recovers from; only a failed turn or exit code is final.
   let lastError: string | undefined;
-  for (const line of stdout.split("\n")) {
-    if (!line.trim().startsWith("{")) continue;
-    let v: { type?: string; message?: string; error?: { message?: string }; item?: { type?: string; text?: string } };
-    try {
-      v = JSON.parse(line) as typeof v;
-    } catch {
-      continue;
-    }
+  type Event = { type?: string; message?: string; error?: { message?: string }; item?: { type?: string; text?: string } };
+  for (const v of jsonLines<Event>(stdout)) {
     if (v.type === "item.completed" && v.item?.type === "agent_message" && typeof v.item.text === "string") reply = v.item.text;
     if (v.type === "error" && v.message) lastError = v.message;
     if (v.type === "turn.failed") failed = v.error?.message ?? lastError ?? "the turn failed";
@@ -218,19 +212,11 @@ type Reply = { id?: number; result?: Record<string, unknown>; error?: { message?
 export function parseCodexModelList(stdout: string): { version: string; models: DiscoveredModel[]; pages: number; next: string | null } | null {
   let version = "";
   const replies = new Map<number, Reply>();
-  for (const line of stdout.split("\n")) {
-    if (!line.trim().startsWith("{")) continue;
-    let v: Reply;
-    try {
-      v = JSON.parse(line) as typeof v;
-    } catch {
-      continue;
-    }
+  for (const v of jsonLines<Reply>(stdout)) {
     // userAgent looks like "claude-tutor/0.161.0 (…)": the number is the Codex version.
     if (v.id === 1) version = /\/(\d[\w.-]*)/.exec(String(v.result?.userAgent ?? ""))?.[1] ?? "";
     else if (typeof v.id === "number") replies.set(v.id, v);
   }
-  const str = (x: unknown) => (typeof x === "string" ? x : "");
   const models: DiscoveredModel[] = [];
   let pages = 0;
   let next: string | null = null;

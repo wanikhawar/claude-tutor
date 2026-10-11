@@ -1,7 +1,7 @@
 // What the UI calls, backed by the vault library and a JSON progress file.
 
 import { TFile, normalizePath, type App } from "obsidian";
-import type { Provider, RequestOptions } from "./core/cli";
+import { cancelled, type Provider, type RequestOptions } from "./core/cli";
 import { listModels } from "./core/providers";
 import { clip } from "./core/notes";
 import { Progress } from "./core/progress";
@@ -84,6 +84,13 @@ export type ChatTurn = [boolean, string, number | null];
 export interface GradeOutcome {
   grade: Grade;
   misconception_id: number | null;
+}
+
+/** How often `word` occurs in `text` without overlapping, counting no higher than `max`. */
+function occurrences(text: string, word: string, max: number): number {
+  let n = 0;
+  for (let i = text.indexOf(word); i >= 0 && n < max; i = text.indexOf(word, i + word.length)) n++;
+  return n;
 }
 
 export class Backend {
@@ -207,7 +214,7 @@ export class Backend {
   snapshot(): Snapshot {
     const s = this.settings();
     const concepts = this.concepts().map((c) => ({ ...c }));
-    const ids = new Set(concepts.map((c) => c.id));
+    const names = new Map(concepts.map((c) => [c.id, c.name]));
     return {
       vault: this.app.vault.getName(),
       configured: s.studyFolders.length > 0 || s.studyFiles.length > 0,
@@ -224,17 +231,10 @@ export class Backend {
       })),
       skipped: [...this.library.skipped.values()],
       concepts,
-      mistakes: this.progress
-        .openMisconceptions()
-        .filter((m) => m.concept_id !== null && ids.has(m.concept_id))
-        .map((m) => ({
-          id: m.id,
-          concept_id: m.concept_id,
-          concept_name: concepts.find((c) => c.id === m.concept_id)?.name ?? null,
-          text: m.text,
-          ts: m.ts,
-          source: m.source ?? "",
-        })),
+      mistakes: this.progress.openMisconceptions().flatMap((m) => {
+        const concept_name = m.concept_id === null ? undefined : names.get(m.concept_id);
+        return concept_name === undefined ? [] : [{ id: m.id, concept_id: m.concept_id, concept_name, text: m.text, ts: m.ts, source: m.source ?? "" }];
+      }),
       activity: this.progress.activity(7),
       streak: this.progress.streak(),
       model: s.model,
@@ -250,7 +250,7 @@ export class Backend {
   async indexNote(key: string, signal?: AbortSignal): Promise<Snapshot> {
     const options = this.claude(signal);
     await this.library.waitForFile(key);
-    if (options.signal?.aborted) throw new Error("Claude request cancelled.");
+    if (options.signal?.aborted) throw cancelled("Claude");
     const note = this.note(key);
     if (this.progress.isCurrent(key, note.hash)) return this.snapshot();
     const known = this.concepts()
@@ -258,7 +258,7 @@ export class Backend {
       .slice(0, 200);
     const list = await tutor.extractConcepts(options, note.title, clip(note.body, NOTE_BUDGET), known);
     await this.library.waitForFile(key);
-    if (options.signal?.aborted) throw new Error("Claude request cancelled.");
+    if (options.signal?.aborted) throw cancelled("Claude");
     // The note may have changed while Claude was reading; only store if it's the same version.
     if (this.library.notes.get(key)?.hash === note.hash) this.progress.saveConcepts(key, note.hash, list.concepts);
     return this.snapshot();
@@ -535,21 +535,23 @@ export class Backend {
       .split(/[^\p{L}\p{N}]+/u)
       .filter((w) => w.length > 2 && !STOPWORDS.has(w));
     if (!words.length) return [];
-    const concepts = this.concepts();
+    const conceptNames = new Map<string, string[]>();
+    for (const c of this.concepts()) {
+      const list = conceptNames.get(c.note_path);
+      if (list) list.push(c.name);
+      else conceptNames.set(c.note_path, [c.name]);
+    }
     // Only notes you picked for Clawd to read: the matches are sent with the lesson.
     const picked = [...this.library.notes.values()].filter((n) => this.shareable(n.key));
     const scored = picked.map((n) => {
       const title = n.title.toLowerCase();
       const body = n.body.toLowerCase();
-      const names = concepts
-        .filter((c) => c.note_path === n.key)
-        .map((c) => c.name.toLowerCase())
-        .join(" ");
+      const names = (conceptNames.get(n.key) ?? []).join(" ").toLowerCase();
       let score = 0;
       for (const w of words) {
         if (title.includes(w)) score += 5;
         if (names.includes(w)) score += 3;
-        score += Math.min(5, body.split(w).length - 1);
+        score += occurrences(body, w, 5);
       }
       return { key: n.key, score };
     });

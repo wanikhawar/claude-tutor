@@ -7,6 +7,8 @@ import { checkTextLayer, pdfjsPages, pdftotextPages, split, type PdfJs } from ".
 import type { Note, Skipped } from "./core/types";
 import type { TutorSettings } from "./settings";
 
+const byPath = new Intl.Collator(undefined, { sensitivity: "base" });
+
 export class Library {
   /** Notes by key (a Markdown file, or one page-range part of a PDF). */
   notes = new Map<string, Note>();
@@ -108,7 +110,7 @@ export class Library {
 
   sorted(): Note[] {
     return [...this.notes.values()].sort(
-      (a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: "base" }) || (a.pages?.[0] ?? 0) - (b.pages?.[0] ?? 0),
+      (a, b) => byPath.compare(a.path, b.path) || (a.pages?.[0] ?? 0) - (b.pages?.[0] ?? 0),
     );
   }
 

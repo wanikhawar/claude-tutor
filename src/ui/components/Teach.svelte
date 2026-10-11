@@ -5,17 +5,16 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import { api, asMood, errText, isCancel, obsidianApp, type Mood } from "../lib/api";
-  import { enterToSend, loadDraft, saveDraft, SEND_HINT } from "../lib/util";
+  import { loadDraft, saveDraft } from "../lib/util";
   import { store } from "../lib/store.svelte";
   import { TEACH_CONTROLS } from "../../core/tutor";
   import { Attachments } from "../lib/attachments.svelte";
-  import { imageFiles, toInputs } from "../lib/images";
+  import { toInputs } from "../lib/images";
   import Clawd from "./Clawd.svelte";
   import Icon from "./Icon.svelte";
   import Markdown from "./Markdown.svelte";
   import ModelPicker from "./ModelPicker.svelte";
-  import AttachButton from "./AttachButton.svelte";
-  import SendButton from "./SendButton.svelte";
+  import Composer from "./Composer.svelte";
   import Thumbs from "./Thumbs.svelte";
 
   type Msg =
@@ -51,18 +50,13 @@
   let request: AbortController | null = null;
   let slow = $state(false);
 
-  const lastClawd = $derived([...msgs].reverse().find((m) => m.from === "clawd")?.id);
+  const lastClawd = $derived(msgs.findLast((m) => m.from === "clawd")?.id);
   const done = $derived(stage === "wrap_up");
   const waiting = $derived(busy || starting);
   /** Anything that sends waits for Clawd, and for images still being prepared. */
   const held = $derived(waiting || att.preparing > 0);
 
-  const suggestions = $derived(
-    [...store.weakConcepts(), ...store.dueConcepts()]
-      .map((c) => c.name)
-      .filter((n, i, a) => a.indexOf(n) === i)
-      .slice(0, 5),
-  );
+  const suggestions = $derived([...new Set([...store.weakConcepts(), ...store.dueConcepts()].map((c) => c.name))].slice(0, 5));
 
   async function scrollDown() {
     await tick();
@@ -230,22 +224,6 @@
     att.clear();
   }
 
-  function onPaste(e: ClipboardEvent) {
-    const files = imageFiles(e.clipboardData);
-    if (files.length) {
-      e.preventDefault();
-      void att.add(files);
-    }
-  }
-
-  function onDrop(e: DragEvent) {
-    const files = imageFiles(e.dataTransfer);
-    if (files.length) {
-      e.preventDefault();
-      void att.add(files);
-    }
-  }
-
   function primary() {
     if (!started) void start();
     else submit();
@@ -292,21 +270,15 @@
         you answers: expect questions back, and hints when you're stuck.
       </p>
       <div class="start-box">
-        <div class="box ct-composer" onpaste={onPaste} ondrop={onDrop} ondragover={(e) => e.preventDefault()} role="group">
-          {#if att.images.length}<div class="box-imgs"><Thumbs images={att.images} onremove={(i) => att.remove(i)} /></div>{/if}
-          <textarea
-            bind:value={topic}
-            rows="2"
-            aria-label="What do you want to learn?"
-            placeholder="Ask a question or describe a topic…"
-            onkeydown={(e) => enterToSend(e, () => void start())}
-          ></textarea>
-          <div class="ct-composer-actions">
-            <AttachButton attachments={att} />
-            <span class="ct-composer-hint">{SEND_HINT}</span>
-            <SendButton label="Teach me" disabled={(!topic.trim() && !att.images.length) || held} onclick={() => start()} />
-          </div>
-        </div>
+        <Composer
+          bind:value={topic}
+          attachments={att}
+          busy={waiting}
+          label="What do you want to learn?"
+          placeholder="Ask a question or describe a topic…"
+          sendLabel="Teach me"
+          onsend={() => void start()}
+        />
         <div class="ct-composer-footer">
           <div class="ct-composer-settings"><ModelPicker /></div>
         </div>
@@ -404,23 +376,17 @@
     {#if !done}
       <footer class="composer">
         <div class="col">
-          <div class="box ct-composer" onpaste={onPaste} ondrop={onDrop} ondragover={(e) => e.preventDefault()} role="group">
-            {#if att.images.length}<div class="box-imgs"><Thumbs images={att.images} onremove={(i) => att.remove(i)} /></div>{/if}
-            <textarea
-              bind:this={inputEl}
-              bind:value={draft}
-              rows="2"
-              disabled={waiting}
-              aria-label="Your reply"
-              placeholder={waiting ? "Clawd is thinking…" : "Your answer, your reasoning, or a question…"}
-              onkeydown={(e) => enterToSend(e, submit)}
-            ></textarea>
-            <div class="ct-composer-actions">
-              <AttachButton attachments={att} />
-              <span class="ct-composer-hint">{SEND_HINT}</span>
-              <SendButton label="Send" disabled={held || (!draft.trim() && !att.images.length)} onclick={submit} />
-            </div>
-          </div>
+          <Composer
+            bind:value={draft}
+            bind:input={inputEl}
+            attachments={att}
+            busy={waiting}
+            disabled={waiting}
+            label="Your reply"
+            placeholder={waiting ? "Clawd is thinking…" : "Your answer, your reasoning, or a question…"}
+            sendLabel="Send"
+            onsend={submit}
+          />
           <div class="ct-composer-footer">
             <div class="ct-composer-options">
               <button class="btn ghost sm self" disabled={held} onclick={() => control("hint")}><Icon name="bulb" size={15} />Hint</button>
@@ -466,9 +432,6 @@
   .start-box {
     width: 100%;
     text-align: left;
-  }
-  .start-box textarea {
-    min-height: 72px;
   }
   .chips,
   .sources {
@@ -643,9 +606,6 @@
     flex: none;
     border-top: 1px solid var(--border);
     padding: 10px 0 16px;
-  }
-  .box-imgs {
-    padding: 10px 10px 0;
   }
   .self {
     opacity: 0.55;

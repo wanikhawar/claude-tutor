@@ -7,6 +7,7 @@ import { ask } from "../src/core/providers";
 import { runCli } from "../src/core/cli";
 import { askCodex, listCodexModels, parseCodexModelList, parseCodexResult } from "../src/core/codex";
 import { Backend } from "../src/backend";
+import { isCancel } from "../src/ui/lib/api";
 import { fixture } from "./helpers";
 
 let dir: string | undefined;
@@ -40,6 +41,16 @@ describe("Claude process lifecycle", () => {
     const controller = new AbortController();
     controller.abort();
     await expect(ask({ path: "/not/a/claude/binary", model: "", cwd: tmpdir(), signal: controller.signal }, "", "", {})).rejects.toThrow("cancelled");
+  });
+
+  it("fails a cancelled request of either CLI with an error the UI recognises", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    for (const provider of ["claude", "codex"] as const) {
+      const failure = await ask({ provider, path: "/not/a/binary", model: "", cwd: tmpdir(), signal: controller.signal }, "", "", {}).catch((e: unknown) => e);
+      expect(isCancel(failure)).toBe(true);
+    }
+    expect(isCancel(new Error("claude exited with code 1"))).toBe(false);
   });
 });
 

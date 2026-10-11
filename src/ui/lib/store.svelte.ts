@@ -74,6 +74,10 @@ export class Store {
   lineId = $state(0);
   sleeping = $state(false);
 
+  // Rebuilt only when the snapshot changes, so lookups in templates don't scan every concept.
+  private conceptById = $derived(new Map(this.concepts.map((c) => [c.id, c])));
+  private noteByKey = $derived(new Map(this.notes.map((n) => [n.key, n])));
+
   private settings!: () => TutorSettings;
   private saveSettings!: () => Promise<void>;
   private moodAt = Date.now();
@@ -424,7 +428,7 @@ export class Store {
       try {
         await this.refresh();
         if (!this.active(generation)) return false;
-        const note = this.notes.find((n) => n.key === key);
+        const note = this.note(key);
         // A bulk read may already have brought this note up to date while we waited.
         if (note && !note.stale) {
           this.failedReads.delete(key);
@@ -459,7 +463,7 @@ export class Store {
     await this.refresh();
     if (!this.active(generation)) return;
     for (const key of [...this.failedReads]) {
-      if (!this.notes.some((n) => n.key === key)) {
+      if (!this.note(key)) {
         this.failedReads.delete(key);
         continue;
       }
@@ -486,7 +490,7 @@ export class Store {
     await this.refresh();
     if (!current()) return;
     for (const key of keys) {
-      const n = this.notes.find((x) => x.key === key);
+      const n = this.note(key);
       if (!n || n.stale) {
         this.say("thinking", `Reading “${n?.title ?? key}” first…`);
         const success = await this.indexOne(key);
@@ -504,7 +508,7 @@ export class Store {
       this.say("confused", "I couldn't find anything to teach in that note.");
       return;
     }
-    const title = this.notes.find((n) => n.key === keys[0])?.title.replace(/ · pp?\..*$/, "") ?? "note";
+    const title = this.note(keys[0])?.title.replace(/ · pp?\..*$/, "") ?? "note";
     if (mode === "quiz") this.startQuiz(`Quiz: ${title}`, concepts.map((c) => c.id), this.settings().quizQuestions || 5);
     else {
       const next = concepts.find((c) => isDue(c)) ?? [...concepts].sort((a, b) => a.mastery - b.mastery)[0];
@@ -628,12 +632,15 @@ export class Store {
   }
 
   noteQuiz(key: string) {
-    const note = this.notes.find((n) => n.key === key);
-    this.startQuiz(`Quiz: ${note?.title ?? "note"}`, this.concepts.filter((c) => c.note_path === key).map((c) => c.id), 5);
+    this.startQuiz(`Quiz: ${this.note(key)?.title ?? "note"}`, this.concepts.filter((c) => c.note_path === key).map((c) => c.id), 5);
   }
 
   concept(id: number) {
-    return this.concepts.find((c) => c.id === id);
+    return this.conceptById.get(id);
+  }
+
+  note(key: string) {
+    return this.noteByKey.get(key);
   }
 
   conceptByName(name: string) {
@@ -646,7 +653,7 @@ export class Store {
   }
 
   noteTitle(key: string) {
-    return this.notes.find((n) => n.key === key)?.title ?? "";
+    return this.note(key)?.title ?? "";
   }
 
   openNote(key: string, page?: number) {
