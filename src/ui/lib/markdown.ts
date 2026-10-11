@@ -22,33 +22,37 @@ const LOCAL = /^(app|data|blob):/i;
 
 /** A copy of a rendered node that's safe to show. The copy is made and checked in the inert document. */
 function safeCopy(node: Node): Node {
-  const doc = node.ownerDocument!;
-  const box = doc.createDocumentFragment();
-  box.append(node.cloneNode(true));
-  for (const e of Array.from(box.querySelectorAll("*"))) {
-    const name = e.localName.toLowerCase();
-    // Replaced one for one, never removed: clicks find their original by position.
-    if (DROP.has(name)) {
-      e.replaceWith(doc.createComment(""));
-      continue;
-    }
-    if (name === "img") {
-      const src = e.getAttribute("src") ?? "";
-      if (!LOCAL.test(src.trim())) {
-        e.replaceWith(imageLink(e, src));
-        continue;
-      }
-    }
-    for (const a of Array.from(e.attributes)) {
-      const n = a.name.toLowerCase();
-      const keepSrc = n === "src" && name === "img";
-      // CSS loads images with url() and image-set(), in styles and SVG attributes like fill;
-      // a backslash in a style could be an escape spelling either.
-      const css = /url\s*\(|image-set\s*\(/i.test(a.value) || (n === "style" && a.value.includes("\\"));
-      if ((FETCHING.has(n) && !keepSrc) || css) e.removeAttribute(a.name);
-    }
+  const copy = node.cloneNode(true);
+  if (copy.nodeType !== Node.ELEMENT_NODE) return copy;
+  const top = copy as Element;
+  // The top element has no parent to be replaced in, so its replacement is returned instead.
+  const swap = safeElement(top);
+  if (swap) return swap;
+  for (const e of Array.from(top.querySelectorAll("*"))) {
+    const replacement = safeElement(e);
+    if (replacement) e.replaceWith(replacement);
   }
-  return box.firstChild!;
+  return top;
+}
+
+/** Strips what `e` would fetch, or returns what should take its place. */
+function safeElement(e: Element): Node | null {
+  const name = e.localName.toLowerCase();
+  // Replaced one for one, never removed: clicks find their original by position.
+  if (DROP.has(name)) return e.ownerDocument.createComment("");
+  if (name === "img") {
+    const src = e.getAttribute("src") ?? "";
+    if (!LOCAL.test(src.trim())) return imageLink(e, src);
+  }
+  for (const a of Array.from(e.attributes)) {
+    const n = a.name.toLowerCase();
+    const keepSrc = n === "src" && name === "img";
+    // CSS loads images with url() and image-set(), in styles and SVG attributes like fill;
+    // a backslash in a style could be an escape spelling either.
+    const css = /url\s*\(|image-set\s*\(/i.test(a.value) || (n === "style" && a.value.includes("\\"));
+    if ((FETCHING.has(n) && !keepSrc) || css) e.removeAttribute(a.name);
+  }
+  return null;
 }
 
 /** A remote image as a link you can choose to open. */

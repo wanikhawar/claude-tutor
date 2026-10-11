@@ -68,6 +68,12 @@ describe("rendering replies", () => {
     expect(view.textContent).toContain("image");
   });
 
+  it("turns a remote image into a link when it's the whole reply", () => {
+    const { view } = render(`<img alt="diagram" src="${EVIL}">`);
+    expect(view.querySelector("img")).toBeNull();
+    expect(view.querySelector("a")!.getAttribute("href")).toBe(EVIL);
+  });
+
   it("drops frames, media, styles and anything else that would fetch", () => {
     const { view } = render(
       `<iframe src="${EVIL}"></iframe>` +
