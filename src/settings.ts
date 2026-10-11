@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { App, FuzzySuggestModal, Notice, PluginSettingTab, Setting, TFolder, type SettingDefinition, type SettingDefinitionItem, type SettingDefinitionPage } from "obsidian";
+import { App, FuzzySuggestModal, Notice, PluginSettingTab, Setting, type SettingDefinition, type SettingDefinitionItem, type SettingDefinitionPage } from "obsidian";
 import type ClaudeTutorPlugin from "./main";
 import { findClaude, modelLabel } from "./core/claude";
 import { PROVIDERS, type DiscoveredModel, type Provider } from "./core/cli";
@@ -75,14 +75,6 @@ export const DEFAULT_SETTINGS: TutorSettings = {
   openInSidebar: true,
   lessonFolder: "Claude Tutor/Lessons",
 };
-
-export function allFolders(app: App): string[] {
-  return app.vault
-    .getAllLoadedFiles()
-    .filter((f): f is TFolder => f instanceof TFolder)
-    .map((f) => (f.isRoot() ? "/" : f.path))
-    .sort((a, b) => a.localeCompare(b));
-}
 
 /**
  * Set the excluded folders. Whichever came last wins: a note added on its own stays in scope
