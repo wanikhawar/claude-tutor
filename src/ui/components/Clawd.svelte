@@ -21,6 +21,11 @@
     onpoke?: () => void;
   } = $props();
 
+  // Per instance, not per size: Obsidian keeps hidden panes in the DOM, and a shared id can resolve
+  // to a clipPath inside a display:none pane, which Chromium ignores, leaving the glint unclipped.
+  const uid = $props.id();
+  const clipId = `clawd-lenses-${uid}`;
+
   let el = $state<SVGSVGElement>();
   let lx = $state(0);
   let ly = $state(0);
@@ -88,7 +93,7 @@
        tooltip, which only works on HTML elements and throws on an SVG. -->
   <title>{onpoke ? "Poke Clawd" : `Clawd is ${mood}`}</title>
   <defs>
-    <clipPath id="lenses-{size}">
+    <clipPath id={clipId}>
       <rect x="3.9" y="7.55" width="3.2" height="2.9" rx="0.5" />
       <rect x="8.9" y="7.55" width="3.2" height="2.9" rx="0.5" />
     </clipPath>
@@ -175,7 +180,7 @@
               <path class="frame" d="M7.1 8.5 H8.9 M3.9 8.5 L3 8 M12.1 8.5 L13 8" />
 
               {#if mood === "proud"}
-                <g clip-path="url(#lenses-{size})">
+                <g clip-path="url(#{clipId})">
                   <path class="glint" d="M3 10.6 L4.4 7.4" />
                 </g>
               {/if}

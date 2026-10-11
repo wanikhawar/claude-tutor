@@ -858,6 +858,18 @@ describe("Clawd", () => {
       target.remove();
     }
   });
+
+  it("gives each instance its own lens clip, so the proud glint never borrows a hidden one", () => {
+    const target = document.body.appendChild(document.createElement("div"));
+    const cmps = [0, 1].map(() => mount(Clawd, { target, props: { mood: "proud", size: 110 } }));
+    flushSync();
+    const ids = [...target.querySelectorAll("clipPath")].map((c) => c.id);
+    expect(new Set(ids).size).toBe(2);
+    const refs = [...target.querySelectorAll("[clip-path]")].map((g) => g.getAttribute("clip-path"));
+    expect(refs).toEqual(ids.map((id) => `url(#${id})`));
+    cmps.forEach((c) => unmount(c));
+    target.remove();
+  });
 });
 
 describe("Ask Clawd history", () => {
