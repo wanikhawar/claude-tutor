@@ -109,6 +109,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for how to set up, test and send changes.
 npm install
 npm run build                                   # type-checks, then writes main.js
 npm test                                        # core unit tests (notes, PDF reflow/split, SRS, progress)
+npm run lint                                    # Obsidian's review rules and the vault-listing check
 CLAUDE_LIVE=1 npx vitest run tests/live.test.ts # live test against Claude (Haiku): checks LaTeX output
 npm run dev                                     # rebuild main.js on change
 ```

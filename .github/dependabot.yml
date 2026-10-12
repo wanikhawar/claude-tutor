@@ -1,0 +1,20 @@
+version: 2
+updates:
+  # Actions are pinned to commit SHAs; this keeps the pins current.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Everything is a dev dependency bundled into main.js, so one grouped PR a month is enough.
+  # Security fixes still come as soon as they're published.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      dev-dependencies:
+        patterns: ["*"]

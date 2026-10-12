@@ -1,0 +1,17 @@
+name: Feature request
+description: Suggest something Claude Tutor could do.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you're trying to do
+      description: The problem or the way you study that this would help with.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you'd like
+    validations:
+      required: true

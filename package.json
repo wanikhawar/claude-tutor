@@ -6,12 +6,15 @@
   "scripts": {
     "dev": "node esbuild.config.mjs --watch",
     "build": "svelte-check --tsconfig ./tsconfig.json && node esbuild.config.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "lint": "eslint --max-warnings 0 . && node scripts/check-vault-listing.mjs"
   },
   "devDependencies": {
     "@types/node": "22.20.5",
     "esbuild": "0.28.2",
     "esbuild-svelte": "0.9.5",
+    "eslint": "9.39.5",
+    "eslint-plugin-obsidianmd": "0.4.2",
     "happy-dom": "20.14.5",
     "obsidian": "1.13.1",
     "svelte": "5.57.2",

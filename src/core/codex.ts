@@ -135,9 +135,10 @@ export async function askCodex<T>(o: RequestOptions, system: string, prompt: str
       onExit: ({ stdout, stderr, code }) => parseCodexResult<T>(stdout, stderr, code),
     });
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    // On Windows a stopped Codex holds its working folder for a moment after it's told to quit.
+    await rm(dir, { recursive: true, force: true, maxRetries: 10 });
     // Removes the link, never the login it points to.
-    if (home) await rm(home, { recursive: true, force: true });
+    if (home) await rm(home, { recursive: true, force: true, maxRetries: 10 });
   }
 }
 
@@ -214,7 +215,7 @@ export function parseCodexModelList(stdout: string): { version: string; models: 
   const replies = new Map<number, Reply>();
   for (const v of jsonLines<Reply>(stdout)) {
     // userAgent looks like "claude-tutor/0.161.0 (…)": the number is the Codex version.
-    if (v.id === 1) version = /\/(\d[\w.-]*)/.exec(String(v.result?.userAgent ?? ""))?.[1] ?? "";
+    if (v.id === 1) version = /\/(\d[\w.-]*)/.exec(typeof v.result?.userAgent === "string" ? v.result.userAgent : "")?.[1] ?? "";
     else if (typeof v.id === "number") replies.set(v.id, v);
   }
   const models: DiscoveredModel[] = [];

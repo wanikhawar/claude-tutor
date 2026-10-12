@@ -11,14 +11,44 @@ import { isCancel } from "../src/ui/lib/api";
 import { fixture } from "./helpers";
 
 let dir: string | undefined;
-afterEach(async () => { vi.unstubAllEnvs(); if (dir) await rm(dir, { recursive: true, force: true }); dir = undefined; });
+afterEach(async () => { vi.unstubAllEnvs(); if (dir) await rm(dir, { recursive: true, force: true, maxRetries: 10 }); dir = undefined; });
 
 async function executable(code: string) {
   dir = await mkdtemp(join(tmpdir(), "claude-tutor-test-"));
-  const path = join(dir, "claude");
-  await writeFile(path, `#!${process.execPath}\n${code}\n`, { mode: 0o755 });
+  if (process.platform !== "win32") {
+    const path = join(dir, "claude");
+    await writeFile(path, `#!${process.execPath}\n${code}\n`, { mode: 0o755 });
+    return { path, model: "", cwd: dir, timeoutMs: 5000 };
+  }
+  // What npm installs on Windows: a .cmd shim that runs a script with node.
+  await mkdir(join(dir, "node_modules", "cli"), { recursive: true });
+  await writeFile(join(dir, "node_modules", "cli", "cli.js"), `${code}\n`);
+  const path = join(dir, "claude.cmd");
+  await writeFile(path, NPM_SHIM.replace("<script>", "node_modules\\cli\\cli.js"));
   return { path, model: "", cwd: dir, timeoutMs: 5000 };
 }
+
+// As written by npm's cmd-shim.
+const NPM_SHIM = [
+  "@ECHO off",
+  "GOTO start",
+  ":find_dp0",
+  "SET dp0=%~dp0",
+  "EXIT /b",
+  ":start",
+  "SETLOCAL",
+  "CALL :find_dp0",
+  "",
+  'IF EXIST "%dp0%\\node.exe" (',
+  '  SET "_prog=%dp0%\\node.exe"',
+  ") ELSE (",
+  '  SET "_prog=node"',
+  "  SET PATHEXT=%PATHEXT:;.JS;=;%",
+  ")",
+  "",
+  'endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\<script>" %*',
+  "",
+].join("\r\n");
 
 describe("Claude process lifecycle", () => {
   it("rejects orderly when a CLI exits before reading a large image payload", async () => {
