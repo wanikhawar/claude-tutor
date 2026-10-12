@@ -18,3 +18,7 @@ updates:
     groups:
       dev-dependencies:
         patterns: ["*"]
+    ignore:
+      # svelte-check and typescript-eslint don't support TypeScript 7 yet. Remove once they do.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
