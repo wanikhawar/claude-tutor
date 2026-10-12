@@ -2,7 +2,8 @@
 // "Lists your vault's files" disclosure. Obsidian's plugin review flags these calls, so each
 // one has to be expected and disclosed.
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+// posix.join keeps "/" separators on Windows too, so paths match the keys in `allowed`.
+import { posix } from "node:path";
 
 // File → number of listing calls in it. Keep in step with the README disclosure.
 const allowed = {
@@ -16,7 +17,7 @@ const listing = /\.\s*(getFiles|getMarkdownFiles|getAllLoadedFiles|getAllFolders
 
 function* sources(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name);
+    const path = posix.join(dir, entry.name);
     if (entry.isDirectory()) yield* sources(path);
     else if (/\.(ts|svelte)$/.test(entry.name)) yield path;
   }
