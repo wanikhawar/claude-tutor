@@ -2,6 +2,7 @@
 // that each fit in one Claude request.
 
 import { execFile } from "node:child_process";
+import { withPath } from "./cli";
 
 /** Target size of one part (the per-request note budget is 30k). */
 export const PART_CHARS = 24_000;
@@ -21,7 +22,7 @@ export function pdftotextPages(fullPath: string): Promise<string[]> {
     execFile(
       "pdftotext",
       ["-enc", "UTF-8", "-q", fullPath, "-"],
-      { maxBuffer: 256 * 1024 * 1024, env: { ...process.env, PATH: `/usr/bin:/usr/local/bin:/opt/homebrew/bin:${process.env.PATH ?? ""}` } },
+      { maxBuffer: 256 * 1024 * 1024, env: withPath(["/usr/bin", "/usr/local/bin", "/opt/homebrew/bin"]) },
       (err, stdout) => {
         if (err) return reject(new Error(`pdftotext failed: ${err.message}`));
         const pages = stdout.split("\f").map(cleanPage);

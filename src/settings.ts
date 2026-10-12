@@ -454,7 +454,7 @@ export class TutorSettingTab extends PluginSettingTab {
                   .setPlaceholder("~/.local/bin/claude")
                   .setValue(s.claudePath)
                   .onChange(async (v) => {
-                    s.claudePath = v.trim().replace(/^~(?=\/)/, homedir());
+                    s.claudePath = v.trim().replace(/^~(?=[\\/])/, homedir());
                     await save();
                   }),
               ),
@@ -468,7 +468,7 @@ export class TutorSettingTab extends PluginSettingTab {
                   .setPlaceholder("/usr/bin/codex")
                   .setValue(s.codexPath)
                   .onChange(async (v) => {
-                    s.codexPath = v.trim().replace(/^~(?=\/)/, homedir());
+                    s.codexPath = v.trim().replace(/^~(?=[\\/])/, homedir());
                     await save();
                   }),
               ),
