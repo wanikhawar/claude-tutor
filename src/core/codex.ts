@@ -135,9 +135,10 @@ export async function askCodex<T>(o: RequestOptions, system: string, prompt: str
       onExit: ({ stdout, stderr, code }) => parseCodexResult<T>(stdout, stderr, code),
     });
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    // On Windows a stopped Codex holds its working folder for a moment after it's told to quit.
+    await rm(dir, { recursive: true, force: true, maxRetries: 10 });
     // Removes the link, never the login it points to.
-    if (home) await rm(home, { recursive: true, force: true });
+    if (home) await rm(home, { recursive: true, force: true, maxRetries: 10 });
   }
 }
 

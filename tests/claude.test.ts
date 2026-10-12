@@ -11,7 +11,7 @@ import { isCancel } from "../src/ui/lib/api";
 import { fixture } from "./helpers";
 
 let dir: string | undefined;
-afterEach(async () => { vi.unstubAllEnvs(); if (dir) await rm(dir, { recursive: true, force: true }); dir = undefined; });
+afterEach(async () => { vi.unstubAllEnvs(); if (dir) await rm(dir, { recursive: true, force: true, maxRetries: 10 }); dir = undefined; });
 
 async function executable(code: string) {
   dir = await mkdtemp(join(tmpdir(), "claude-tutor-test-"));
