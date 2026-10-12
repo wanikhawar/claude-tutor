@@ -37,3 +37,5 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      # Also part of npm run lint; run here too so its path handling is checked on Windows.
+      - run: node scripts/check-vault-listing.mjs
