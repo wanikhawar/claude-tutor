@@ -39,12 +39,18 @@ The [Hot-Reload](https://github.com/pjeby/hot-reload) plugin can do that for you
 
 ## Checks
 
-Before opening a pull request, make sure both of these pass. CI runs them on every pull request.
+Before opening a pull request, make sure these pass. CI runs them on every pull request, with the tests and build on
+Linux, macOS and Windows.
 
 ```sh
 npm test        # unit tests
+npm run lint    # Obsidian's review rules (eslint-plugin-obsidianmd) and the vault-listing check
 npm run build   # type-checks with svelte-check, then builds main.js
 ```
+
+The vault-listing check (`scripts/check-vault-listing.mjs`) fails if a whole-vault listing such as `vault.getFiles()` is
+added, moved or removed. Prefer a narrower lookup; if a listing is really needed, update the counts in the script and the
+README's **Lists your vault's files** disclosure together.
 
 If you change prompts or how replies are parsed, also run the live test. It uses Claude Haiku and counts against your plan:
 
@@ -79,8 +85,9 @@ The [Development](README.md#development) section of the README maps out the sour
 ## Releases
 
 Releases are made by the maintainer: the version is bumped in `manifest.json`, `package.json` and `versions.json`,
-and pushing a tag with the same version (no `v`) runs `.github/workflows/release.yml`, which tests, builds, attests
-and publishes `main.js`, `manifest.json` and `styles.css`.
+and pushing a tag with the same version (no `v`) runs `.github/workflows/release.yml`. It checks that the tag matches
+`manifest.json` and `package.json` and that `versions.json` lists it, then lints, tests, builds, attests and publishes
+`main.js`, `manifest.json` and `styles.css`.
 
 ## License
 

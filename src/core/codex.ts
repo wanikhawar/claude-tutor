@@ -214,7 +214,7 @@ export function parseCodexModelList(stdout: string): { version: string; models: 
   const replies = new Map<number, Reply>();
   for (const v of jsonLines<Reply>(stdout)) {
     // userAgent looks like "claude-tutor/0.161.0 (…)": the number is the Codex version.
-    if (v.id === 1) version = /\/(\d[\w.-]*)/.exec(String(v.result?.userAgent ?? ""))?.[1] ?? "";
+    if (v.id === 1) version = /\/(\d[\w.-]*)/.exec(typeof v.result?.userAgent === "string" ? v.result.userAgent : "")?.[1] ?? "";
     else if (typeof v.id === "number") replies.set(v.id, v);
   }
   const models: DiscoveredModel[] = [];

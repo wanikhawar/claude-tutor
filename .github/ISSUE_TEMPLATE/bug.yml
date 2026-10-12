@@ -1,0 +1,48 @@
+name: Bug report
+description: Something in Claude Tutor doesn't work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Please leave out the contents of private notes. A small note that shows the problem is best.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: plugin
+    attributes:
+      label: Plugin version
+      placeholder: "1.1.1"
+    validations:
+      required: true
+  - type: input
+    id: obsidian
+    attributes:
+      label: Obsidian version
+      placeholder: "1.13.1"
+    validations:
+      required: true
+  - type: input
+    id: cli
+    attributes:
+      label: Claude Code or Codex CLI version
+      description: Output of `claude --version` or `codex --version`.
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options: [macOS, Windows, Linux]
+    validations:
+      required: true
+  - type: textarea
+    id: console
+    attributes:
+      label: Console errors
+      description: From the developer console (Ctrl+Shift+I, or Cmd+Opt+I on macOS).
+      render: text
