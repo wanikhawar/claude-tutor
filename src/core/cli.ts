@@ -79,13 +79,23 @@ function installDirs(homeDirs: string[]): string[] {
     const npm = process.env.APPDATA ? [join(process.env.APPDATA, "npm")] : [];
     return [...[".local/bin", ...homeDirs].map((d) => join(home, d)), ...npm, join(home, ".bun/bin")];
   }
-  return [...[".local/bin", ...homeDirs, ".npm-global/bin", ".bun/bin"].map((d) => join(home, d)), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"];
+  return [
+    ...[".local/bin", ...homeDirs, ".npm-global/bin", ".bun/bin"].map((d) => join(home, d)),
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    "/usr/bin",
+  ];
 }
 
 /** GUI apps often start without the user's shell PATH, so look in the usual install spots. */
 export function findBinary(configured: string, name: string, homeDirs: string[] = []): string {
   if (configured.trim()) return configured.trim();
-  if (!WINDOWS) return installDirs(homeDirs).map((d) => join(d, name)).find((c) => existsSync(c)) ?? name;
+  if (!WINDOWS)
+    return (
+      installDirs(homeDirs)
+        .map((d) => join(d, name))
+        .find((c) => existsSync(c)) ?? name
+    );
   // spawn() only finds .exe files on PATH by itself, and npm installs .cmd shims, so search PATH too.
   const dirs = [...installDirs(homeDirs), ...(process.env.PATH ?? "").split(delimiter).filter(Boolean)];
   const candidates = dirs.flatMap((d) => [join(d, `${name}.exe`), join(d, `${name}.cmd`)]);
@@ -114,7 +124,8 @@ export function launcher(bin: string, args: string[]): { file: string; args: str
   if (!WINDOWS || !/\.(cmd|bat)$/i.test(bin) || !existsSync(bin)) return { file: bin, args };
   // npm's shims end with: "%_prog%"  "%dp0%\node_modules\<package>\cli.js" %*
   const target = /"%~?dp0%?\\([^"]+)"\s+%\*/.exec(readFileSync(bin, "utf8"))?.[1];
-  if (!target) throw new Error(`Can't run "${bin}": only npm's .cmd shims are supported. Set the path to the .exe instead.`);
+  if (!target)
+    throw new Error(`Can't run "${bin}": only npm's .cmd shims are supported. Set the path to the .exe instead.`);
   const dir = dirname(bin);
   const script = join(dir, target);
   if (!/\.[cm]?js$/i.test(script)) return { file: script, args };

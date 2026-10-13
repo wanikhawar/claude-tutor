@@ -40,7 +40,10 @@ export const EXTRACT_VERSION = 2;
 const MAX_ATTEMPTS = 5_000;
 
 function cleanQuestions(qs: string[] | undefined): string[] {
-  return (qs ?? []).map((q) => q.trim()).filter(Boolean).slice(0, 4);
+  return (qs ?? [])
+    .map((q) => q.trim())
+    .filter(Boolean)
+    .slice(0, 4);
 }
 
 /** The question to ask about a concept now: rotates through its questions on each review. */
@@ -89,7 +92,12 @@ export function parseProgress(text: string): ProgressData {
   for (const [key, n] of Object.entries((v.notes ?? {}) as Record<string, unknown>)) {
     if (!isObject(n) || typeof n.hash !== "string") fail("bad notes");
     const note = n as Record<string, unknown>;
-    notes[key] = { ...note, hash: note.hash as string, indexed_at: str(note.indexed_at), v: typeof note.v === "number" ? note.v : undefined };
+    notes[key] = {
+      ...note,
+      hash: note.hash as string,
+      indexed_at: str(note.indexed_at),
+      v: typeof note.v === "number" ? note.v : undefined,
+    };
   }
   const concepts = list<Concept>("concepts", (c) =>
     isId(c.id) && typeof c.note_path === "string" && typeof c.name === "string"
@@ -111,12 +119,20 @@ export function parseProgress(text: string): ProgressData {
   );
   const misconceptions = list<Misconception>("misconceptions", (m) =>
     isId(m.id) && typeof m.text === "string"
-      ? { ...(m as unknown as Misconception), concept_id: isId(m.concept_id) ? m.concept_id : null, resolved: m.resolved === true, ts: str(m.ts), source: typeof m.source === "string" ? m.source : undefined }
+      ? {
+          ...(m as unknown as Misconception),
+          concept_id: isId(m.concept_id) ? m.concept_id : null,
+          resolved: m.resolved === true,
+          ts: str(m.ts),
+          source: typeof m.source === "string" ? m.source : undefined,
+        }
       : undefined,
   );
   // An attempt without a time can't count towards anything, so it's left out.
   const attempts = list<Attempt | null>("attempts", (a) =>
-    typeof a.ts === "string" ? { concept_id: isId(a.concept_id) ? a.concept_id : null, kind: str(a.kind), score: num(a.score, 0), ts: a.ts } : null,
+    typeof a.ts === "string"
+      ? { concept_id: isId(a.concept_id) ? a.concept_id : null, kind: str(a.kind), score: num(a.score, 0), ts: a.ts }
+      : null,
   ).filter((a): a is Attempt => a !== null);
   // New ids must not collide with saved ones, even if nextId was lost.
   const ids = [...concepts, ...misconceptions].map((x) => x.id);
@@ -238,7 +254,8 @@ export class Progress {
 
   logAttempt(conceptId: number | null, kind: string, score: number) {
     this.data.attempts.push({ concept_id: conceptId, kind, score, ts: new Date().toISOString() });
-    if (this.data.attempts.length > MAX_ATTEMPTS) this.data.attempts.splice(0, this.data.attempts.length - MAX_ATTEMPTS);
+    if (this.data.attempts.length > MAX_ATTEMPTS)
+      this.data.attempts.splice(0, this.data.attempts.length - MAX_ATTEMPTS);
     this.changed();
   }
 
@@ -275,12 +292,19 @@ export class Progress {
 
   addMisconception(conceptId: number | null, text: string, source = ""): number {
     const cleaned = text.trim();
-    const existing = this.data.misconceptions.find((m) =>
-      !m.resolved && m.concept_id === conceptId && m.text.toLowerCase() === cleaned.toLowerCase(),
+    const existing = this.data.misconceptions.find(
+      (m) => !m.resolved && m.concept_id === conceptId && m.text.toLowerCase() === cleaned.toLowerCase(),
     );
     if (existing) return existing.id;
     const id = this.data.nextId++;
-    this.data.misconceptions.push({ id, concept_id: conceptId, text: cleaned, resolved: false, ts: new Date().toISOString(), source: source.trim() || undefined });
+    this.data.misconceptions.push({
+      id,
+      concept_id: conceptId,
+      text: cleaned,
+      resolved: false,
+      ts: new Date().toISOString(),
+      source: source.trim() || undefined,
+    });
     this.changed();
     return id;
   }

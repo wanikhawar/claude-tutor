@@ -1,19 +1,40 @@
 import { vi } from "vitest";
 
-export class TAbstractFile { path = ""; name = ""; }
-export class TFile extends TAbstractFile { extension = "md"; basename = ""; stat = { size: 0, mtime: 0, ctime: 0 }; }
-export class TFolder extends TAbstractFile { isRoot() { return this.path === "/"; } }
+export class TAbstractFile {
+  path = "";
+  name = "";
+}
+export class TFile extends TAbstractFile {
+  extension = "md";
+  basename = "";
+  stat = { size: 0, mtime: 0, ctime: 0 };
+}
+export class TFolder extends TAbstractFile {
+  isRoot() {
+    return this.path === "/";
+  }
+}
 export class App {}
 export class FileSystemAdapter {}
-export class Component { load() {} unload() {} }
+export class Component {
+  load() {}
+  unload() {}
+}
 export class ItemView {}
-export class Scope { register() {} }
+export class Scope {
+  register() {}
+}
 export class Setting {}
 export class PluginSettingTab {}
 export class FuzzySuggestModal {}
-export class Notice { constructor(public message: string) {} }
+export class Notice {
+  constructor(public message: string) {}
+}
 export class Plugin {
-  constructor(public app: unknown, public manifest: unknown) {}
+  constructor(
+    public app: unknown,
+    public manifest: unknown,
+  ) {}
   loadData = vi.fn(async (): Promise<unknown> => null);
   saveData = vi.fn(async (_data: unknown) => {});
   registerEvent() {}
@@ -23,15 +44,30 @@ export class Plugin {
   addCommand() {}
 }
 class MenuItem {
-  setTitle() { return this; }
-  setIcon() { return this; }
-  setIsLabel() { return this; }
-  setChecked() { return this; }
-  onClick() { return this; }
+  setTitle() {
+    return this;
+  }
+  setIcon() {
+    return this;
+  }
+  setIsLabel() {
+    return this;
+  }
+  setChecked() {
+    return this;
+  }
+  onClick() {
+    return this;
+  }
 }
 export class Menu {
-  addItem(fn: (item: MenuItem) => void) { fn(new MenuItem()); return this; }
-  addSeparator() { return this; }
+  addItem(fn: (item: MenuItem) => void) {
+    fn(new MenuItem());
+    return this;
+  }
+  addSeparator() {
+    return this;
+  }
   showAtMouseEvent() {}
   showAtPosition() {}
 }
@@ -53,7 +89,10 @@ export function debounce(fn: () => void, delay: number) {
     timer = setTimeout(fn, delay);
     return run;
   };
-  run.cancel = () => { clearTimeout(timer); return run; };
+  run.cancel = () => {
+    clearTimeout(timer);
+    return run;
+  };
   return run;
 }
 export const requireApiVersion = () => true;

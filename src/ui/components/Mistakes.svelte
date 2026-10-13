@@ -41,11 +41,14 @@
     <div>
       <h1>Mistakes</h1>
       <p class="muted">
-        Every wrong belief Clawd spots lands here. Quizzes keep targeting them until a check question proves they're fixed.
+        Every wrong belief Clawd spots lands here. Quizzes keep targeting them until a check question proves they're
+        fixed.
       </p>
     </div>
     {#if store.mistakes.length}
-      <button class="btn primary" onclick={() => store.mistakesQuiz()}><Icon name="target" size={16} />Practice all</button>
+      <button class="btn primary" onclick={() => store.mistakesQuiz()}
+        ><Icon name="target" size={16} />Practice all</button
+      >
     {/if}
   </header>
 
@@ -76,7 +79,9 @@
                   {#if m.source}<span class="src">· while answering “<Markdown md={m.source} inline />”</span>{/if}
                 </p>
               </div>
-              <button class="btn sm ghost" title="Mark as resolved" onclick={() => resolve(m.id)}><Icon name="check" size={15} />Resolved</button>
+              <button class="btn sm ghost" title="Mark as resolved" onclick={() => resolve(m.id)}
+                ><Icon name="check" size={15} />Resolved</button
+              >
             </div>
           {/each}
         </section>

@@ -1,5 +1,14 @@
 import { homedir } from "node:os";
-import { App, FuzzySuggestModal, Notice, PluginSettingTab, Setting, type SettingDefinition, type SettingDefinitionItem, type SettingDefinitionPage } from "obsidian";
+import {
+  App,
+  FuzzySuggestModal,
+  Notice,
+  PluginSettingTab,
+  Setting,
+  type SettingDefinition,
+  type SettingDefinitionItem,
+  type SettingDefinitionPage,
+} from "obsidian";
 import type ClaudeTutorPlugin from "./main";
 import { findClaude, modelLabel } from "./core/claude";
 import { PROVIDERS, type DiscoveredModel, type Provider } from "./core/cli";
@@ -195,7 +204,11 @@ export class TutorSettingTab extends PluginSettingTab {
                   }
                   await this.editModels((list) => {
                     if (on && !shown(m.id)) list.push({ provider: p, id: m.id, alias: "" });
-                    if (!on) list.splice(list.findIndex((v) => isModel(v, p, m.id)), 1);
+                    if (!on)
+                      list.splice(
+                        list.findIndex((v) => isModel(v, p, m.id)),
+                        1,
+                      );
                   });
                 }),
               );
@@ -206,7 +219,8 @@ export class TutorSettingTab extends PluginSettingTab {
     };
 
     // The picker groups models by CLI, so order only matters within one; keep this CLI's last.
-    const reorder = (next: VisibleModel[]) => (list: VisibleModel[]) => list.splice(0, list.length, ...list.filter((m) => m.provider !== p), ...next);
+    const reorder = (next: VisibleModel[]) => (list: VisibleModel[]) =>
+      list.splice(0, list.length, ...list.filter((m) => m.provider !== p), ...next);
 
     return [
       { type: "group", heading: name, items: [status, browse] },
@@ -258,8 +272,18 @@ export class TutorSettingTab extends PluginSettingTab {
           name: "Add a model",
           action: () => {
             const hidden = known.filter((m) => !shown(m.id));
-            if (!hidden.length) return new Notice(known.length ? "Every available model is already visible." : `No ${name} models found yet. Try reloading.`);
-            new AddModelModal(this.app, hidden, (m) => baseName(s, p, m.id), (m) => void this.editModels((list) => list.push({ provider: p, id: m.id, alias: "" }))).open();
+            if (!hidden.length)
+              return new Notice(
+                known.length
+                  ? "Every available model is already visible."
+                  : `No ${name} models found yet. Try reloading.`,
+              );
+            new AddModelModal(
+              this.app,
+              hidden,
+              (m) => baseName(s, p, m.id),
+              (m) => void this.editModels((list) => list.push({ provider: p, id: m.id, alias: "" })),
+            ).open();
           },
         },
       },
@@ -381,7 +405,14 @@ export class TutorSettingTab extends PluginSettingTab {
             build: (setting) =>
               setting.addDropdown((d) =>
                 d
-                  .addOptions(Object.fromEntries(s.models.map((m) => [`${m.provider}:${m.id}`, `${modelName(s, m.provider, m.id)} (${providerName(m.provider)})`])))
+                  .addOptions(
+                    Object.fromEntries(
+                      s.models.map((m) => [
+                        `${m.provider}:${m.id}`,
+                        `${modelName(s, m.provider, m.id)} (${providerName(m.provider)})`,
+                      ]),
+                    ),
+                  )
                   .setValue(`${s.provider}:${s.model}`)
                   .onChange(async (v) => {
                     const at = v.indexOf(":");
@@ -407,11 +438,21 @@ export class TutorSettingTab extends PluginSettingTab {
           },
           {
             name: "Concepts to explain per session",
-            build: slider(0, 5, () => s.explainPerSession, (v) => (s.explainPerSession = v)),
+            build: slider(
+              0,
+              5,
+              () => s.explainPerSession,
+              (v) => (s.explainPerSession = v),
+            ),
           },
           {
             name: "Quiz questions per session",
-            build: slider(0, 10, () => s.quizQuestions, (v) => (s.quizQuestions = v)),
+            build: slider(
+              0,
+              10,
+              () => s.quizQuestions,
+              (v) => (s.quizQuestions = v),
+            ),
           },
           {
             name: "Open in right sidebar",
@@ -536,7 +577,8 @@ export const BUILTIN_MODELS: DiscoveredModel[] = [
 
 export const providerName = (p: Provider) => PROVIDERS.find((x) => x.id === p)?.name ?? p;
 
-export const isModel = (m: { provider: Provider; id: string }, provider: Provider, id: string) => m.provider === provider && m.id === id;
+export const isModel = (m: { provider: Provider; id: string }, provider: Provider, id: string) =>
+  m.provider === provider && m.id === id;
 
 /** Everything a CLI offers, plus models you picked that it no longer lists. */
 export function knownModels(s: TutorSettings, provider: Provider): DiscoveredModel[] {
@@ -544,7 +586,13 @@ export function knownModels(s: TutorSettings, provider: Provider): DiscoveredMod
   const known = found.length || provider !== "claude" ? found : BUILTIN_MODELS;
   const missing = s.models
     .filter((v) => v.provider === provider && !known.some((m) => m.id === v.id))
-    .map((v) => ({ provider, id: v.id, name: "", desc: `Not offered by ${providerName(provider)} any more`, resolved: "" }));
+    .map((v) => ({
+      provider,
+      id: v.id,
+      name: "",
+      desc: `Not offered by ${providerName(provider)} any more`,
+      resolved: "",
+    }));
   return [...known, ...missing];
 }
 

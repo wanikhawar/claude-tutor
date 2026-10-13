@@ -15,6 +15,7 @@
   const mastered = $derived(store.concepts.filter((c) => c.mastery >= 0.8).length);
   const ready = $derived(store.concepts.length > 0);
   const caughtUp = $derived(ready && !due.length);
+  const heading = $derived(due.length ? "Today's session" : ready ? "All caught up" : "Getting ready…");
   const activity = $derived(store.snap?.activity ?? []);
   const peak = $derived(Math.max(1, ...activity));
   const streak = $derived(store.snap?.streak ?? 0);
@@ -37,7 +38,9 @@
   const unread = $derived(store.unread);
   let picked = $state<string[]>([]);
   let filterText = $state("");
-  const shownUnread = $derived(unread.filter((n) => n.title.toLowerCase().includes(filterText.trim().toLowerCase())).slice(0, 200));
+  const shownUnread = $derived(
+    unread.filter((n) => n.title.toLowerCase().includes(filterText.trim().toLowerCase())).slice(0, 200),
+  );
   const pickedKeys = $derived(picked.filter((k) => unread.some((n) => n.key === k)));
   function togglePick(key: string) {
     picked = picked.includes(key) ? picked.filter((k) => k !== key) : [...picked, key];
@@ -102,8 +105,8 @@
       <div>
         <h3>Re-read {store.confirmCount} edited notes?</h3>
         <p class="muted small">
-          That's {store.confirmCount} Claude requests, which uses some of your subscription. You can also skip this and
-          re-read notes one at a time from the Library tab.
+          That's {store.confirmCount} Claude requests, which uses some of your subscription. You can also skip this and re-read
+          notes one at a time from the Library tab.
         </p>
       </div>
       <div class="confirm-actions">
@@ -128,7 +131,11 @@
   <section class="quick">
     <div class="ct-card primary-card">
       <span class="ti" style="color: var(--good)"><Icon name="sun" /></span>
-      <b>{due.length ? "Today's session" : ready ? "All caught up" : "Getting ready…"}{#if ready && !(caughtUp && !plan.length)}{" "}<kbd>Enter</kbd>{/if}</b>
+      <!-- eslint-disable-next-line svelte/no-useless-mustaches -- a plain space at the start of a block is trimmed -->
+      <b
+        >{heading}
+        {#if ready && !(caughtUp && !plan.length)}<kbd>Enter</kbd>{/if}</b
+      >
       <small>
         {#if !ready}
           Pick at least one note for Clawd to read first.
@@ -141,7 +148,9 @@
         {/if}
       </small>
       {#if caughtUp && !plan.length}
-        <button class="btn primary" onclick={() => (store.view = { name: "teach" })}><Icon name="sparkles" size={15} />Learn something new</button>
+        <button class="btn primary" onclick={() => (store.view = { name: "teach" })}
+          ><Icon name="sparkles" size={15} />Learn something new</button
+        >
       {:else}
         <button class="btn primary" disabled={!ready} onclick={() => store.startStudy()}>
           <Icon name="play" size={15} />{caughtUp ? "Review ahead" : "Start studying"}
@@ -161,7 +170,11 @@
     <button class="tile ct-card" disabled={!store.mistakes.length} onclick={() => store.mistakesQuiz()}>
       <span class="ti" style="color: var(--bad)"><Icon name="target" /></span>
       <b>Fix my mistakes</b>
-      <small>{store.mistakes.length ? `${store.mistakes.length} misconception${store.mistakes.length > 1 ? "s" : ""} to clear` : "Nothing to fix yet"}</small>
+      <small
+        >{store.mistakes.length
+          ? `${store.mistakes.length} misconception${store.mistakes.length > 1 ? "s" : ""} to clear`
+          : "Nothing to fix yet"}</small
+      >
     </button>
   </section>
 
@@ -173,9 +186,17 @@
       <b style:color={streak ? "var(--accent)" : undefined}>{streak}</b><span>day streak</span>
     </div>
     {#if activity.length}
-      <div class="week" role="img" aria-label="Reviews over the last 7 days: {activity.map((n, i) => `${dayName(i)} ${n}`).join(', ')}">
+      <div
+        class="week"
+        role="img"
+        aria-label="Reviews over the last 7 days: {activity.map((n, i) => `${dayName(i)} ${n}`).join(', ')}"
+      >
         {#each activity as n, i}
-          <span class="day" class:today={i === activity.length - 1} title="{dayName(i)}: {n} review{n === 1 ? '' : 's'}">
+          <span
+            class="day"
+            class:today={i === activity.length - 1}
+            title="{dayName(i)}: {n} review{n === 1 ? '' : 's'}"
+          >
             <span class="fill" style:height="{n ? Math.max(12, (n / peak) * 100) : 0}%"></span>
           </span>
         {/each}

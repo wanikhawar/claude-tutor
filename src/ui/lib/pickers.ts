@@ -20,7 +20,9 @@ export class NotePicker extends FuzzySuggestModal<TFile> {
   getItems(): TFile[] {
     return this.app.vault
       .getFiles()
-      .filter((f) => ["md", "pdf"].includes(f.extension.toLowerCase()) && !f.path.startsWith(this.app.vault.configDir + "/"))
+      .filter(
+        (f) => ["md", "pdf"].includes(f.extension.toLowerCase()) && !f.path.startsWith(this.app.vault.configDir + "/"),
+      )
       .sort((a, b) => b.stat.mtime - a.stat.mtime);
   }
 

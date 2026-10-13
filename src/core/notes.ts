@@ -26,7 +26,10 @@ export function stripComments(s: string): string {
 }
 
 export function noteTitle(front: string, body: string, basename: string): string {
-  const t = /^title:\s*(.+)$/m.exec(front)?.[1].trim().replace(/^["']|["']$/g, "");
+  const t = /^title:\s*(.+)$/m
+    .exec(front)?.[1]
+    .trim()
+    .replace(/^["']|["']$/g, "");
   if (t) return t;
   const h1 = /^# (.+)$/m.exec(body)?.[1].trim();
   return h1 || basename;

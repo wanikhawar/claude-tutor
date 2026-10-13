@@ -31,7 +31,7 @@
   let ly = $state(0);
   // Alternates between two identical animations so repeated pokes restart the boing.
   let boing = $state<"" | "a" | "b">("");
-  let boingTimer: ReturnType<typeof setTimeout> | undefined;
+  let boingTimer: number | undefined;
 
   $effect(() => {
     if (!follow || !animate) return;
@@ -51,13 +51,13 @@
     return () => window.removeEventListener("pointermove", move);
   });
 
-  $effect(() => () => clearTimeout(boingTimer));
+  $effect(() => () => window.clearTimeout(boingTimer));
 
   function poke() {
     if (!onpoke) return;
     boing = boing === "a" ? "b" : "a";
-    clearTimeout(boingTimer);
-    boingTimer = setTimeout(() => (boing = ""), 600);
+    window.clearTimeout(boingTimer);
+    boingTimer = window.setTimeout(() => (boing = ""), 600);
     onpoke();
   }
 

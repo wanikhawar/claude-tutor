@@ -17,11 +17,13 @@
   import Composer from "./Composer.svelte";
   import Thumbs from "./Thumbs.svelte";
 
-  type Msg =
-    | { id: number; from: "me"; text: string; images?: string[] }
-    | { id: number; from: "clawd"; md: string; mood: Mood }
+  /** A message as it's pushed; `push` numbers it. */
+  type NewMsg =
+    | { from: "me"; text: string; images?: string[] }
+    | { from: "clawd"; md: string; mood: Mood }
     /** `retry` is dropped once anything newer is sent: re-running it then would answer out of turn. */
-    | { id: number; from: "error"; text: string; retry: (() => void) | null };
+    | { from: "error"; text: string; retry: (() => void) | null };
+  type Msg = NewMsg & { id: number };
 
   /** Unsent text in the topic box survives the view closing, like explanation drafts. */
   const TOPIC_DRAFT = "teach:topic";
@@ -56,15 +58,17 @@
   /** Anything that sends waits for Clawd, and for images still being prepared. */
   const held = $derived(waiting || att.preparing > 0);
 
-  const suggestions = $derived([...new Set([...store.weakConcepts(), ...store.dueConcepts()].map((c) => c.name))].slice(0, 5));
+  const suggestions = $derived(
+    [...new Set([...store.weakConcepts(), ...store.dueConcepts()].map((c) => c.name))].slice(0, 5),
+  );
 
   async function scrollDown() {
     await tick();
     threadEl?.scrollTo({ top: threadEl.scrollHeight, behavior: "smooth" });
   }
 
-  function push(m: Omit<Msg, "id"> & Record<string, unknown>) {
-    msgs.push({ ...(m as Msg), id: nextId++ });
+  function push(m: NewMsg) {
+    msgs.push({ ...m, id: nextId++ });
     void scrollDown();
   }
 
@@ -86,8 +90,11 @@
       slow = false;
       const ctl = new AbortController();
       request = ctl;
-      const slowTimer = setTimeout(() => (slow = true), 8_000);
-      if (hadFocus) void tick().then(() => { if (rootEl && !rootEl.contains(document.activeElement)) rootEl.focus({ preventScroll: true }); });
+      const slowTimer = window.setTimeout(() => (slow = true), 8_000);
+      if (hadFocus)
+        void tick().then(() => {
+          if (rootEl && !rootEl.contains(document.activeElement)) rootEl.focus({ preventScroll: true });
+        });
       store.say("thinking", "Hmm, let me think about how to put this…");
       try {
         const r = await api.teach(topic, $state.snapshot(sources), $state.snapshot(history), message, imgs, ctl.signal);
@@ -115,11 +122,11 @@
           }
           store.say("happy", "Okay, stopped.");
         } else {
-          push({ from: "error", text: errText(e), retry: turn });
+          push({ from: "error", text: errText(e), retry: () => void turn() });
           store.say("confused", "Oops, I couldn't reach my brain.");
         }
       } finally {
-        clearTimeout(slowTimer);
+        window.clearTimeout(slowTimer);
         if (request === ctl) request = null;
         slow = false;
         busy = false;
@@ -157,7 +164,9 @@
   }
 
   function control(kind: "hint" | "show" | "next" | "wrap") {
-    const shown = { hint: "Hint, please.", show: "Show me.", next: "I get it. Next step.", wrap: "Let's wrap up." }[kind];
+    const shown = { hint: "Hint, please.", show: "Show me.", next: "I get it. Next step.", wrap: "Let's wrap up." }[
+      kind
+    ];
     void send("", shown, TEACH_CONTROLS[kind]);
   }
 
@@ -266,8 +275,8 @@
       <Clawd mood={store.liveMood} size={110} />
       <h2>What do you want to learn?</h2>
       <p class="muted lede">
-        Name a concept, ask a question, or attach a photo of a problem. Clawd will teach it step by step, but it won't just hand
-        you answers: expect questions back, and hints when you're stuck.
+        Name a concept, ask a question, or attach a photo of a problem. Clawd will teach it step by step, but it won't
+        just hand you answers: expect questions back, and hints when you're stuck.
       </p>
       <div class="start-box">
         <Composer
@@ -316,7 +325,9 @@
           <div class="sources">
             <span class="faint small">Using your notes:</span>
             {#each sources as k}
-              <button class="chip" onclick={() => store.openNote(k)}><Icon name="book" size={13} />{store.noteTitle(k)}</button>
+              <button class="chip" onclick={() => store.openNote(k)}
+                ><Icon name="book" size={13} />{store.noteTitle(k)}</button
+              >
             {/each}
           </div>
         {/if}
@@ -331,7 +342,12 @@
           {:else if m.from === "clawd"}
             <div class="clawd-row">
               <div class="avatar">
-                <Clawd mood={m.id === lastClawd && !waiting ? store.liveMood : m.mood} size={40} animate={m.id === lastClawd && !waiting} follow={false} />
+                <Clawd
+                  mood={m.id === lastClawd && !waiting ? store.liveMood : m.mood}
+                  size={40}
+                  animate={m.id === lastClawd && !waiting}
+                  follow={false}
+                />
               </div>
               <div class="bubble ct-card"><Markdown md={m.md} /></div>
             </div>
@@ -343,7 +359,14 @@
                 <p class="muted small">{m.text}</p>
                 {#if m.retry}
                   {@const retry = m.retry}
-                  <button class="btn sm" disabled={waiting} onclick={() => { msgs = msgs.filter((x) => x.id !== m.id); retry(); }}><Icon name="retry" size={15} />Try again</button>
+                  <button
+                    class="btn sm"
+                    disabled={waiting}
+                    onclick={() => {
+                      msgs = msgs.filter((x) => x.id !== m.id);
+                      retry();
+                    }}><Icon name="retry" size={15} />Try again</button
+                  >
                 {/if}
               </div>
             </div>
@@ -352,7 +375,9 @@
         {#if waiting}
           <div class="clawd-row thinking-row" aria-live="polite">
             <div class="avatar"><Clawd mood="thinking" size={40} follow={false} /></div>
-            <div class="bubble ct-card typing" aria-label="Clawd is thinking"><span></span><span></span><span></span></div>
+            <div class="bubble ct-card typing" aria-label="Clawd is thinking">
+              <span></span><span></span><span></span>
+            </div>
             {#if slow}<p class="slow faint small">Still thinking… this can take a little while.</p>{/if}
           </div>
         {/if}
@@ -364,7 +389,9 @@
               {#if savedPath}
                 <span class="saved"><Icon name="check" size={15} />Saved to {savedPath}</span>
               {:else}
-                <button class="btn primary" disabled={saving} onclick={save}><Icon name="save" size={16} />Save as note</button>
+                <button class="btn primary" disabled={saving} onclick={save}
+                  ><Icon name="save" size={16} />Save as note</button
+                >
               {/if}
               <button class="btn ghost" onclick={newLesson}>Learn something else</button>
             </div>
@@ -389,12 +416,20 @@
           />
           <div class="ct-composer-footer">
             <div class="ct-composer-options">
-              <button class="btn ghost sm self" disabled={held} onclick={() => control("hint")}><Icon name="bulb" size={15} />Hint</button>
-              <button class="btn ghost sm self show" disabled={held} onclick={() => control("show")}><Icon name="eye" size={15} />Show me</button>
-              <button class="btn ghost sm self got" disabled={held} onclick={() => control("next")}><Icon name="check" size={15} />I get it</button>
+              <button class="btn ghost sm self" disabled={held} onclick={() => control("hint")}
+                ><Icon name="bulb" size={15} />Hint</button
+              >
+              <button class="btn ghost sm self show" disabled={held} onclick={() => control("show")}
+                ><Icon name="eye" size={15} />Show me</button
+              >
+              <button class="btn ghost sm self got" disabled={held} onclick={() => control("next")}
+                ><Icon name="check" size={15} />I get it</button
+              >
             </div>
             {#if busy}
-              <button class="btn sm cancel" onclick={cancel} title="Stop this request (Esc)"><Icon name="x" size={14} />Cancel</button>
+              <button class="btn sm cancel" onclick={cancel} title="Stop this request (Esc)"
+                ><Icon name="x" size={14} />Cancel</button
+              >
             {/if}
           </div>
           <!-- Narrow panes have no room in the header, so the model and effort switches sit under the entry box. -->

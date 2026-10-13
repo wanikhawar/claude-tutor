@@ -54,7 +54,9 @@ async function filesystemFixture() {
     getFullPath: vi.fn((path: string) => join(dir, path)),
     write: vi.fn((path: string, data: string) => writeFile(join(dir, path), data)),
     // The real Obsidian adapter refuses to overwrite a destination.
-    rename: vi.fn(async () => { throw new Error("Destination file already exists!"); }),
+    rename: vi.fn(async () => {
+      throw new Error("Destination file already exists!");
+    }),
   });
   f.vault.adapter = adapter;
   return { ...f, adapter, dir };
@@ -67,7 +69,7 @@ describe("progress persistence", () => {
     ['{"notes":{"a.md":null}}'],
     ['{"misconceptions":[{"id":1,"text":null}]}'],
     ['{"nextId":"7"}'],
-    ['[]'],
+    ["[]"],
   ])("starts fresh from a file of the wrong shape (%s) and keeps a backup", async (text) => {
     const f = pluginFixture();
     f.disk.set("progress.json", text);
@@ -95,24 +97,75 @@ describe("progress persistence", () => {
 
   it("gives every field studying reads its default when it's missing or the wrong type", async () => {
     const f = pluginFixture();
-    f.disk.set("progress.json", JSON.stringify({
-      nextId: 5,
-      notes: { "a.md": { hash: "h", v: "2", indexed_at: null } },
-      concepts: [{ id: 1, note_path: "a.md", name: "Idea", summary: null, prerequisites: null, excerpt: 5, questions: "Why?", ease: "2.5",
-        interval_days: null, reps: null, due: 0, mastery: "high", last_reviewed: {}, extra: "kept" }],
-      attempts: [{ ts: "2026-10-10T09:00:00Z", score: "x", concept_id: "1" }, { score: 1 }],
-      misconceptions: [{ id: 3, text: "Oops", concept_id: "1", resolved: "yes", ts: null }],
-    }));
+    f.disk.set(
+      "progress.json",
+      JSON.stringify({
+        nextId: 5,
+        notes: { "a.md": { hash: "h", v: "2", indexed_at: null } },
+        concepts: [
+          {
+            id: 1,
+            note_path: "a.md",
+            name: "Idea",
+            summary: null,
+            prerequisites: null,
+            excerpt: 5,
+            questions: "Why?",
+            ease: "2.5",
+            interval_days: null,
+            reps: null,
+            due: 0,
+            mastery: "high",
+            last_reviewed: {},
+            extra: "kept",
+          },
+        ],
+        attempts: [{ ts: "2026-10-10T09:00:00Z", score: "x", concept_id: "1" }, { score: 1 }],
+        misconceptions: [{ id: 3, text: "Oops", concept_id: "1", resolved: "yes", ts: null }],
+      }),
+    );
     const data = await f.internals.loadProgress();
-    expect(data.concepts).toEqual([{ id: 1, note_path: "a.md", name: "Idea", summary: "", prerequisites: [], excerpt: "", questions: [], ease: 2.5,
-      interval_days: 0, reps: 0, lapses: 0, due: null, mastery: 0, last_reviewed: null, extra: "kept" }]);
+    expect(data.concepts).toEqual([
+      {
+        id: 1,
+        note_path: "a.md",
+        name: "Idea",
+        summary: "",
+        prerequisites: [],
+        excerpt: "",
+        questions: [],
+        ease: 2.5,
+        interval_days: 0,
+        reps: 0,
+        lapses: 0,
+        due: null,
+        mastery: 0,
+        last_reviewed: null,
+        extra: "kept",
+      },
+    ]);
     expect(data.notes["a.md"]).toMatchObject({ hash: "h", indexed_at: "", v: undefined });
     expect(data.attempts).toEqual([{ concept_id: null, kind: "", score: 0, ts: "2026-10-10T09:00:00Z" }]);
-    expect(data.misconceptions).toEqual([{ id: 3, text: "Oops", concept_id: null, resolved: false, ts: "", source: undefined }]);
+    expect(data.misconceptions).toEqual([
+      { id: 3, text: "Oops", concept_id: null, resolved: false, ts: "", source: undefined },
+    ]);
     // And the concept can be studied and scheduled.
     const ask = vi.spyOn(providers, "ask").mockResolvedValue({});
     const concept = data.concepts[0];
-    await tutor.evaluateFeynman({ path: "", model: "", cwd: "/tmp" }, { concept, question: "Why?", noteTitle: "A", noteBody: "", attempt: 0, explanation: "Because", previousGaps: [], peeked: false, stuck: false });
+    await tutor.evaluateFeynman(
+      { path: "", model: "", cwd: "/tmp" },
+      {
+        concept,
+        question: "Why?",
+        noteTitle: "A",
+        noteBody: "",
+        attempt: 0,
+        explanation: "Because",
+        previousGaps: [],
+        peeked: false,
+        stuck: false,
+      },
+    );
     expect(ask).toHaveBeenCalled();
     review(concept, 0.8);
     expect(concept.reps).toBe(1);
@@ -121,8 +174,29 @@ describe("progress persistence", () => {
 
   it("keeps new ids clear of saved ones when nextId is missing", async () => {
     const f = pluginFixture();
-    const concept = { id: 7, note_path: "a.md", name: "Idea", summary: "", prerequisites: [], excerpt: "", questions: [], ease: 2.5, interval_days: 0, reps: 0, lapses: 0, due: null, mastery: 0, last_reviewed: null };
-    f.disk.set("progress.json", JSON.stringify({ concepts: [concept], misconceptions: [{ id: 9, concept_id: 7, text: "x", resolved: false, ts: "" }] }));
+    const concept = {
+      id: 7,
+      note_path: "a.md",
+      name: "Idea",
+      summary: "",
+      prerequisites: [],
+      excerpt: "",
+      questions: [],
+      ease: 2.5,
+      interval_days: 0,
+      reps: 0,
+      lapses: 0,
+      due: null,
+      mastery: 0,
+      last_reviewed: null,
+    };
+    f.disk.set(
+      "progress.json",
+      JSON.stringify({
+        concepts: [concept],
+        misconceptions: [{ id: 9, concept_id: 7, text: "x", resolved: false, ts: "" }],
+      }),
+    );
     const data = await f.internals.loadProgress();
     expect(data.concepts).toEqual([concept]);
     expect(data.nextId).toBe(10);
@@ -332,7 +406,11 @@ describe("where the tutor lives", () => {
 describe("note command ordering", () => {
   it("does not activate or launch an older command that finishes loading after a newer one", async () => {
     const f = pluginFixture();
-    store.init(f.backend, () => f.settings, async () => {});
+    store.init(
+      f.backend,
+      () => f.settings,
+      async () => {},
+    );
     await store.refresh();
     const old = deferred<string>();
     f.vault.cachedRead.mockReturnValueOnce(old.promise).mockResolvedValueOnce("# New choice\nContent");
@@ -351,7 +429,11 @@ describe("note command ordering", () => {
   it("does not launch a pending note command after the learner selects another session", async () => {
     const f = pluginFixture();
     f.progress.saveConcepts("b.md", "hash:b.md", [extracted("Selected idea")]);
-    store.init(f.backend, () => f.settings, async () => {});
+    store.init(
+      f.backend,
+      () => f.settings,
+      async () => {},
+    );
     await store.refresh();
     const old = deferred<string>();
     f.vault.cachedRead.mockReturnValueOnce(old.promise);
