@@ -69,7 +69,7 @@
 
 {#snippet box()}
   {#if attachments.images.length}<div class="imgs">
-      <Thumbs images={attachments.images} onremove={(i) => attachments.remove(i)} />
+      <Thumbs images={attachments.images} onremove={(i: number) => attachments.remove(i)} />
     </div>{/if}
   <textarea
     bind:this={input}

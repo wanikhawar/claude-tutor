@@ -54,16 +54,10 @@ export default defineConfig([
     },
   },
   {
-    files: ["**/*.svelte"],
-    rules: {
-      // ESLint sees imported components as `any`, so these misfire on every prop callback.
-      // svelte-check type-checks templates against the real component types instead.
-      "@typescript-eslint/no-unsafe-argument": "off",
-      "@typescript-eslint/no-unsafe-assignment": "off",
-      "@typescript-eslint/no-unsafe-call": "off",
-      "@typescript-eslint/no-unsafe-member-access": "off",
-      "@typescript-eslint/no-unsafe-return": "off",
-    },
+    // Its input-method check keeps the deprecated keyCode 229 fallback, which MDN still recommends;
+    // Obsidian's rules don't allow disabling this one inline.
+    files: ["src/ui/components/ModelPicker.svelte"],
+    rules: { "@typescript-eslint/no-deprecated": "off" },
   },
   {
     files: ["**/*.svelte.ts"],

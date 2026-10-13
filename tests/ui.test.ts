@@ -1073,10 +1073,11 @@ describe("model list keyboard and search", () => {
     await settle();
     const search = document.querySelector<HTMLInputElement>(".ct-model-pop input")!;
     key(search, "ArrowDown");
-    // Confirming or cancelling composed text.
+    // Confirming or cancelling composed text (isComposing, or keyCode 229 in some browsers).
     search.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true, cancelable: true }),
     );
+    search.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", keyCode: 229, bubbles: true, cancelable: true }));
     search.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Escape", isComposing: true, bubbles: true, cancelable: true }),
     );

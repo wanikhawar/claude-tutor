@@ -834,7 +834,7 @@
                     (phase.p === "explain" || phase.p === "explained") &&
                     phase.conceptId === m.conceptId}
                   conceptId={m.conceptId}
-                  onprereq={(id) => learnPrereq(id, m.conceptId)}
+                  onprereq={(id: number) => learnPrereq(id, m.conceptId)}
                 />
               {:else if m.kind === "question"}
                 <QuestionCard
@@ -847,7 +847,7 @@
                     phase.p === "quiz" &&
                     phase.stage === "answer" &&
                     mode === "answer"}
-                  onchoose={(i) => (choice = i)}
+                  onchoose={(i: number) => (choice = i)}
                 />
               {:else if m.kind === "grade"}
                 <GradeCard g={m.g} q={m.q} latest={m.id === lastClawd} onexplain={() => explainNext(m.q)} />
