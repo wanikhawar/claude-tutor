@@ -17,11 +17,13 @@
   import Composer from "./Composer.svelte";
   import Thumbs from "./Thumbs.svelte";
 
-  type Msg =
-    | { id: number; from: "me"; text: string; images?: string[] }
-    | { id: number; from: "clawd"; md: string; mood: Mood }
+  /** A message as it's pushed; `push` numbers it. */
+  type NewMsg =
+    | { from: "me"; text: string; images?: string[] }
+    | { from: "clawd"; md: string; mood: Mood }
     /** `retry` is dropped once anything newer is sent: re-running it then would answer out of turn. */
-    | { id: number; from: "error"; text: string; retry: (() => void) | null };
+    | { from: "error"; text: string; retry: (() => void) | null };
+  type Msg = NewMsg & { id: number };
 
   /** Unsent text in the topic box survives the view closing, like explanation drafts. */
   const TOPIC_DRAFT = "teach:topic";
@@ -63,8 +65,8 @@
     threadEl?.scrollTo({ top: threadEl.scrollHeight, behavior: "smooth" });
   }
 
-  function push(m: Omit<Msg, "id"> & Record<string, unknown>) {
-    msgs.push({ ...(m as Msg), id: nextId++ });
+  function push(m: NewMsg) {
+    msgs.push({ ...m, id: nextId++ });
     void scrollDown();
   }
 

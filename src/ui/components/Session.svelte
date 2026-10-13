@@ -40,7 +40,8 @@
 
   let { plan }: { plan: Plan } = $props();
 
-  type Msg = { id: number } & (
+  /** A message as it's pushed; `push` numbers it. */
+  type NewMsg =
     | { kind: "say"; md: string; mood: Mood; source?: string }
     | { kind: "me"; text: string; note?: string; images?: string[] }
     | { kind: "feedback"; ev: FeynmanEval; stuck: boolean; conceptId: number; mood: Mood }
@@ -50,8 +51,8 @@
     /** `retry` is dropped once anything newer is sent: re-running it then would answer out of turn. */
     | { kind: "error"; text: string; retry: (() => void) | null; mood: Mood }
     | { kind: "divider"; text: string }
-    | { kind: "summary"; mood: Mood }
-  );
+    | { kind: "summary"; mood: Mood };
+  type Msg = NewMsg & { id: number };
 
   type Phase =
     | { p: "busy" }
@@ -125,10 +126,10 @@
   /** Cards that can be taller than the viewport open at their top, not their bottom. */
   const TALL = ["feedback", "grade", "question", "summary"];
 
-  function push(m: Omit<Msg, "id"> & Record<string, unknown>) {
+  function push(m: NewMsg) {
     const id = nextId++;
-    msgs.push({ ...(m as Msg), id });
-    if (TALL.includes(m.kind as string)) void scrollToMsg(id);
+    msgs.push({ ...m, id });
+    if (TALL.includes(m.kind)) void scrollToMsg(id);
     else void scrollDown();
     return id;
   }
