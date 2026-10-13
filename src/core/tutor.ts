@@ -48,11 +48,22 @@ function obj(properties: Record<string, unknown>) {
 // ---------------------------------------------------------------------------
 // Concept extraction
 
+/** Most concepts taken from one request; a long note is read in several. */
+export const MAX_CONCEPTS = 30;
+
+/** Where a piece of a long note sits, and what earlier pieces already gave. */
+export interface NotePart {
+  index: number;
+  count: number;
+  earlier: string[];
+}
+
 export function extractConcepts(
   c: RequestOptions,
   title: string,
   body: string,
   known: string[],
+  part: NotePart = { index: 1, count: 1, earlier: [] },
 ): Promise<{ concepts: ExtractedConcept[] }> {
   const schema = obj({
     concepts: {
@@ -66,17 +77,27 @@ export function extractConcepts(
       }),
     },
   });
-  const prompt = `Extract the key teachable concepts from this note so the learner can be taught and quizzed on them.
+  const whole = part.count === 1;
+  const text = whole ? "this note" : "this part of the note";
+  const partNote = whole
+    ? ""
+    : `\nThis is part ${part.index} of ${part.count} of the note "${title}"; the other parts are read separately.${
+        part.earlier.length
+          ? ` Concepts already taken from earlier parts (don't repeat them; use them as prerequisites where they fit): ${part.earlier.join("; ")}`
+          : ""
+      }\n`;
+  const prompt = `Extract the teachable concepts from ${text} so the learner can be taught and quizzed on them.
 
-- Return between 1 and 12 concepts, ordered from foundational to advanced. Fewer for short notes.
-- A concept is ONE specific, explainable idea, not a section heading or a topic area. Look under each heading for the core idea(s) it teaches: a mechanism, a cause and effect, a relationship, or why something is true or useful. A heading can yield several concepts, or none if it's just a list. Skip trivia and pure lists of names.
+- How many: let the content decide, not its length. Return one concept for each distinct idea the text actually teaches, ordered from foundational to advanced. A dense passage (a derivation, a multi-step mechanism, a comparison, a set of rules) can give several concepts from one paragraph; introductions, narrative, extra examples of an idea already covered, and repetition give none. Never pad, and never split one idea into several. At most ${MAX_CONCEPTS}.
+- A concept is ONE specific, explainable idea, not a section heading or a topic area: a mechanism, a cause and effect, a relationship, or why something is true or useful. A heading can yield several concepts, or none.
+- Tables and lists of facts: don't make a concept per row, and don't skip them. Make concepts of what organises the rows (a pattern they share, a contrast between items that are easy to confuse, a rule and its exceptions), naming the specific items in the summary. Leave out rows that are pure trivia.
 - \`name\`: the idea itself, specific enough to be recognisable (e.g. "Kinetic energy grows with the square of speed", not "Kinetic energy"; "TCP resends only the lost segment", not "Reliability").
 - \`questions\`: 2-3 focused questions that make the learner explain the core of this idea in their own words, each from a different angle (why it's true, how it works, when you'd use it, what would happen if...). Each should be answerable in a few sentences, must not give the answer away, and must not just restate the heading ("Explain X" is not allowed). Example: "Why does doubling an object's speed quadruple its kinetic energy?"
 - \`prerequisites\`: names of concepts that must be understood first. Reuse names from the known list (or from this note) when they match; otherwise use a short general name. Empty if none.
 - \`excerpt\`: a verbatim quote from the note supporting the concept.
 
 Known concept names elsewhere in the library: ${known.length ? known.join("; ") : "(none yet)"}
-
+${partNote}
 <note title="${title}">
 ${body}
 </note>`;
@@ -372,6 +393,7 @@ How to teach:
 - Do not give away answers you're asking for. If they're wrong or unsure, respond to their reasoning, then give a hint or a simpler sub-question. Only explain fully when they press SHOW ME, or after two failed tries at the same question.
 - When they get something right, say specifically what was right and build on it.
 - Use the learner's own notes below when they're relevant; quote them briefly. Anything beyond their notes is fine, but label it "Beyond your notes:".
+- A long note may show only the passages relevant right now, with an outline of all its headings; the rest comes in as the lesson reaches it. Never say the notes don't cover something in that outline: steer the lesson there and it will be included.
 - \`stage\`: intro (finding out what they know), teaching, checking (a final check that they can explain the whole idea), wrap_up (lesson over). At wrap_up, \`reply\` congratulates and recaps in 2-3 sentences, and \`summary\` is a concise Markdown study note of what they learned (key ideas, formulas in LaTeX, one worked example, and a short "test yourself" list). Otherwise \`summary\` is empty.
 - Move to wrap_up yourself once they can explain the whole idea back.
 

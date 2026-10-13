@@ -3,7 +3,8 @@
 import { TFile, normalizePath, type App } from "obsidian";
 import { cancelled, type Provider, type RequestOptions } from "./core/cli";
 import { listModels } from "./core/providers";
-import { clip } from "./core/notes";
+import { chunks, clip, headings } from "./core/notes";
+import { PART_CHARS } from "./core/pdf";
 import { Progress } from "./core/progress";
 import { review } from "./core/srs";
 import * as tutor from "./core/tutor";
@@ -13,6 +14,7 @@ import {
   type CheckResult,
   type Concept,
   type Confidence,
+  type ExtractedConcept,
   type FeynmanEval,
   type Gap,
   type Grade,
@@ -27,13 +29,22 @@ import type { Library } from "./library";
 import { modelName, type TutorSettings } from "./settings";
 
 const STOPWORDS = new Set(
-  "the and for with how why what when does work works about into from that this are was were you your teach explain learn understand want know".split(
+  "a an am as at be by do if in is it me my of on or so to up us we the and for with how why what when does work works about into from that this are was were you your teach explain learn understand want know".split(
     " ",
   ),
 );
 
-/** Max characters of note text sent with a single request. */
-const NOTE_BUDGET = 30_000;
+/** Concepts are read from a long note a piece of up to this many characters at a time (a PDF part fits in one). */
+const EXTRACT_CHARS = PART_CHARS;
+
+/** Max characters of one note sent with a request: past this, only its most relevant passages go. */
+const NOTE_BUDGET = 100_000;
+/** Max characters of note text in one lesson turn, shared by its notes. Fits every supported model. */
+const TEACH_CHARS = 400_000;
+/** Max characters of note text in one quiz request, shared by its notes. */
+const QUIZ_CHARS = 300_000;
+/** Size of the passages a long note is cut into when only part of it fits. */
+const PASSAGE_CHARS = 4_000;
 
 export interface NoteInfo {
   key: string;
@@ -88,11 +99,74 @@ export interface GradeOutcome {
   misconception_id: number | null;
 }
 
-/** How often `word` occurs in `text` without overlapping, counting no higher than `max`. */
-function occurrences(text: string, word: string, max: number): number {
+/**
+ * Finds a topic word in lowercase text. Short words ("b5", "ph") must stand alone, or they'd
+ * match inside most words; longer ones match anywhere, so "vitamin" finds "vitamins".
+ */
+function wordPattern(word: string): RegExp {
+  // Topic words are only letters and digits, so they need no escaping.
+  return new RegExp(word.length < 3 ? `(?<![\\p{L}\\p{N}])${word}(?![\\p{L}\\p{N}])` : word, "gu");
+}
+
+/** How often `pattern` occurs in `text` without overlapping, counting no higher than `max`. */
+function occurrences(text: string, pattern: RegExp, max: number): number {
   let n = 0;
-  for (let i = text.indexOf(word); i >= 0 && n < max; i = text.indexOf(word, i + word.length)) n++;
+  pattern.lastIndex = 0;
+  while (n < max && pattern.exec(text)) n++;
   return n;
+}
+
+/** The words of a query worth matching, as patterns. */
+function queryWords(query: string): RegExp[] {
+  return query
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((w) => w && !STOPWORDS.has(w))
+    .map(wordPattern);
+}
+
+/**
+ * A note in at most `budget` characters. A note that fits goes whole. A longer one keeps the
+ * passages that best match `query`, in note order, after an outline of all its headings so
+ * Claude knows what else it covers.
+ */
+function passages(body: string, budget: number, query: RegExp[]): string {
+  if (body.length <= budget) return body;
+  const outline = clip(headings(body).join("\n"), Math.floor(budget / 10));
+  const head = `[A long note: only the passages most relevant right now are included, and "[…]" marks the gaps. All its headings:\n${outline}]\n\n`;
+  const pieces = chunks(body, PASSAGE_CHARS).map((text, i) => {
+    const lower = text.toLowerCase();
+    return { text, i, score: query.reduce((sum, w) => sum + occurrences(lower, w, 5), 0) };
+  });
+  // Best matches first; ties (including no match at all) in note order.
+  const picked = new Set<number>();
+  let left = budget - head.length;
+  for (const p of [...pieces].sort((a, b) => b.score - a.score || a.i - b.i)) {
+    if (p.text.length > left) continue;
+    picked.add(p.i);
+    left -= p.text.length;
+  }
+  let out = head;
+  let last = -1;
+  for (const p of pieces) {
+    if (!picked.has(p.i)) continue;
+    if (p.i !== last + 1) out += "\n[…]\n\n";
+    out += p.text;
+    last = p.i;
+  }
+  return last < pieces.length - 1 ? `${out}\n[…]` : out;
+}
+
+/** Split `total` characters between texts of these lengths: short ones whole, the rest evenly. */
+function shares(lengths: number[], total: number): number[] {
+  const out = lengths.map(() => 0);
+  let left = total;
+  const shortestFirst = lengths.map((_, i) => i).sort((a, b) => lengths[a] - lengths[b]);
+  shortestFirst.forEach((i, k) => {
+    out[i] = Math.min(lengths[i], Math.floor(left / (shortestFirst.length - k)));
+    left -= out[i];
+  });
+  return out;
 }
 
 export class Backend {
@@ -175,9 +249,10 @@ export class Backend {
     return n;
   }
 
-  private noteText(key: string, budget: number): [string, string] {
+  /** A note's title and text, cut to the passages that best match `query` if it's over `budget`. */
+  private noteText(key: string, budget: number, query = ""): [string, string] {
     const n = this.library.notes.get(key);
-    return n ? [n.title, clip(n.body, budget)] : ["", ""];
+    return n ? [n.title, passages(n.body, budget, queryWords(query))] : ["", ""];
   }
 
   private concepts(): Concept[] {
@@ -268,11 +343,26 @@ export class Backend {
     const known = this.concepts()
       .map((c) => c.name)
       .slice(0, 200);
-    const list = await tutor.extractConcepts(options, note.title, clip(note.body, NOTE_BUDGET), known);
+    // All of the note, a piece at a time so a long one gets the same attention throughout.
+    // Only the concepts are kept.
+    const parts = chunks(note.body, EXTRACT_CHARS);
+    const list: ExtractedConcept[] = [];
+    const seen = new Set<string>();
+    for (const [i, text] of parts.entries()) {
+      const part = { index: i + 1, count: parts.length, earlier: list.map((c) => c.name) };
+      const { concepts } = await tutor.extractConcepts(options, note.title, text, known, part);
+      if (options.signal?.aborted) throw cancelled("Claude");
+      for (const c of concepts.slice(0, tutor.MAX_CONCEPTS)) {
+        const name = c.name.trim().toLowerCase();
+        if (seen.has(name)) continue;
+        seen.add(name);
+        list.push(c);
+      }
+    }
     await this.library.waitForFile(key);
     if (options.signal?.aborted) throw cancelled("Claude");
     // The note may have changed while Claude was reading; only store if it's the same version.
-    if (this.library.notes.get(key)?.hash === note.hash) this.progress.saveConcepts(key, note.hash, list.concepts);
+    if (this.library.notes.get(key)?.hash === note.hash) this.progress.saveConcepts(key, note.hash, list);
     return this.snapshot();
   }
 
@@ -361,7 +451,7 @@ export class Backend {
     followUp?: string;
   }): Promise<FeynmanEval> {
     const concept = this.concept(a.conceptId);
-    const [noteTitle, noteBody] = this.noteText(concept.note_path, NOTE_BUDGET);
+    const [noteTitle, noteBody] = this.noteText(concept.note_path, NOTE_BUDGET, `${concept.name} ${concept.excerpt}`);
     const ev = await tutor.evaluateFeynman(this.requestOptions(a.signal), {
       concept,
       question: a.question,
@@ -405,10 +495,14 @@ export class Backend {
       .filter((c): c is Concept => !!c && this.shareable(c.note_path))
       .slice(0, 8);
     if (!pool.length) throw new Error("No concepts to quiz on yet.");
-    const perNote = Math.min(12_000, Math.max(4_000, Math.floor(NOTE_BUDGET / pool.length)));
+    // Each note once, sharing one limit, with the passages about its quizzed concepts.
+    const paths = [...new Set(pool.map((c) => c.note_path))];
+    const lengths = paths.map((p) => Math.min(NOTE_BUDGET, this.library.notes.get(p)?.body.length ?? 0));
+    const budgets = new Map(shares(lengths, QUIZ_CHARS).map((b, i) => [paths[i], b]));
     const seen = new Set<string>();
     const materials = pool.map((c) => {
-      const [noteTitle, body] = this.noteText(c.note_path, perNote);
+      const about = pool.filter((x) => x.note_path === c.note_path).map((x) => `${x.name} ${x.excerpt}`);
+      const [noteTitle, body] = this.noteText(c.note_path, budgets.get(c.note_path) ?? 0, about.join(" "));
       const first = !seen.has(c.note_path);
       seen.add(c.note_path);
       return { concept: c, noteTitle, noteBody: first ? body : "(same note as above)" };
@@ -467,7 +561,7 @@ export class Backend {
       const userAnswer =
         choice !== null && isMcq(question) ? `Chose option ${choice + 1}: ${question.options[choice] ?? ""}` : answer;
       const context =
-        `Concept: ${concept.name}\nSummary: ${concept.summary}\nKey excerpt: ${concept.excerpt}\n\nNote:\n${this.noteText(concept.note_path, 10_000)[1]}` +
+        `Concept: ${concept.name}\nSummary: ${concept.summary}\nKey excerpt: ${concept.excerpt}\n\nNote:\n${this.noteText(concept.note_path, NOTE_BUDGET, `${concept.name} ${concept.excerpt}`)[1]}` +
         (target ? `\n\nMisconception being practised: ${target.text}` : "");
       const label = { guess: "just guessing", unsure: "somewhat unsure", sure: "confident" }[confidence];
       grade = await tutor.grade(this.requestOptions(signal), question, userAnswer, label, context, images, target);
@@ -547,7 +641,7 @@ export class Backend {
     const turns = this.chatHistory(history).map(([me, text]): [boolean, string] => [me, text]);
     let context: string;
     if (c) {
-      const [title, body] = this.noteText(c.note_path, 20_000);
+      const [title, body] = this.noteText(c.note_path, NOTE_BUDGET, `${c.name} ${c.excerpt} ${message}`);
       context = `${situation}\n\nConcept "${c.name}" (${c.summary})\n\nNote "${title}":\n${body}`;
     } else {
       const names = this.concepts()
@@ -563,10 +657,7 @@ export class Backend {
 
   /** Notes most relevant to a topic, by simple keyword overlap (titles and concepts weigh more). */
   relevantNotes(topic: string, limit = 3): string[] {
-    const words = topic
-      .toLowerCase()
-      .split(/[^\p{L}\p{N}]+/u)
-      .filter((w) => w.length > 2 && !STOPWORDS.has(w));
+    const words = queryWords(topic);
     if (!words.length) return [];
     const conceptNames = new Map<string, string[]>();
     for (const c of this.concepts()) {
@@ -582,8 +673,8 @@ export class Backend {
       const names = (conceptNames.get(n.key) ?? []).join(" ").toLowerCase();
       let score = 0;
       for (const w of words) {
-        if (title.includes(w)) score += 5;
-        if (names.includes(w)) score += 3;
+        if (title.search(w) >= 0) score += 5;
+        if (names.search(w) >= 0) score += 3;
         score += occurrences(body, w, 5);
       }
       return { key: n.key, score };
@@ -610,10 +701,17 @@ export class Backend {
         "A note this lesson was based on is no longer in your library, so Clawd can't continue it. Start a new lesson.",
       );
     }
-    const context = sources
-      .filter((k) => this.shareable(k))
-      .map((k) => {
-        const [title, body] = this.noteText(k, 8_000);
+    // Whole notes while they fit. Past that, the passages that match the lesson so far, picked
+    // again every turn, so any part of a note comes in once the lesson reaches it.
+    const keys = sources.filter((k) => this.shareable(k));
+    const budgets = shares(
+      keys.map((k) => this.library.notes.get(k)?.body.length ?? 0),
+      TEACH_CHARS,
+    );
+    const query = [topic, ...history.slice(-2).map(([, text]) => text), message].join(" ");
+    const context = keys
+      .map((k, i) => {
+        const [title, body] = this.noteText(k, budgets[i], query);
         return title ? `### Note "${title}"\n${body}` : "";
       })
       .filter(Boolean)

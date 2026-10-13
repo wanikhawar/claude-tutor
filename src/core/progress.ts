@@ -33,8 +33,9 @@ export interface ProgressData {
 /**
  * Bump when concept extraction changes in a way worth re-reading notes for.
  * 2: concepts are specific ideas with focused questions (not headings).
+ * 3: the whole note is read, long ones a section at a time, and the count follows the content.
  */
-export const EXTRACT_VERSION = 2;
+export const EXTRACT_VERSION = 3;
 
 /** Old attempts beyond this are dropped; only recent ones are shown or counted. */
 const MAX_ATTEMPTS = 5_000;

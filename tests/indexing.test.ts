@@ -352,3 +352,24 @@ describe("indexing disposal", () => {
     expect(state.indexError).toBeNull();
   });
 });
+
+describe("reading a long note", () => {
+  it("reads it a section at a time, telling each part what earlier parts gave", async () => {
+    const f = await setup(["a.md"]);
+    const sections = ["## One\n", "## Two\n", "## Three\n"].map((h) => h + "x".repeat(20_000) + "\n");
+    f.library.notes.get("a.md")!.body = sections.join("");
+    const extract = vi
+      .spyOn(tutor, "extractConcepts")
+      .mockResolvedValueOnce({ concepts: [extracted("First idea")] })
+      .mockResolvedValueOnce({ concepts: [extracted("first idea"), extracted("Second idea")] })
+      .mockResolvedValueOnce({ concepts: [extracted("Third idea")] });
+    await f.backend.indexNote("a.md");
+    expect(extract.mock.calls.map(([, , text]) => text)).toEqual(sections);
+    expect(extract.mock.calls.map(([, , , , part]) => part)).toEqual([
+      { index: 1, count: 3, earlier: [] },
+      { index: 2, count: 3, earlier: ["First idea"] },
+      { index: 3, count: 3, earlier: ["First idea", "Second idea"] },
+    ]);
+    expect(f.progress.data.concepts.map((c) => c.name)).toEqual(["First idea", "Second idea", "Third idea"]);
+  });
+});

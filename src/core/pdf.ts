@@ -4,7 +4,7 @@
 import { execFile } from "node:child_process";
 import { withPath } from "./cli";
 
-/** Target size of one part (the per-request note budget is 30k). */
+/** Target size of one part (well under the per-request note budget). */
 export const PART_CHARS = 24_000;
 /** Below this many characters per page on average, there's no usable text layer. */
 const MIN_CHARS_PER_PAGE = 40;

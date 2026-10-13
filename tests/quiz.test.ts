@@ -270,6 +270,77 @@ describe("what goes with a request", () => {
     expect(f.backend.relevantNotes("entropy")).toEqual(["about.md", "mentions.md"]);
   });
 
+  it("matches short topic words only as whole words", () => {
+    const f = fixture(["vitamins.md", "parts.md"]);
+    f.library.notes.get("vitamins.md")!.body =
+      "B5 (pantothenic acid) becomes coenzyme A. B5 is in most foods, so B5 deficiency is rare.";
+    f.library.notes.get("parts.md")!.body = "Part AB50, AB51 and AB52.";
+    f.progress.saveConcepts("vitamins.md", "hash:vitamins.md", [extracted("Coenzyme A")]);
+    f.progress.saveConcepts("parts.md", "hash:parts.md", [extracted("Part numbers")]);
+    expect(f.backend.relevantNotes("b5")).toEqual(["vitamins.md"]);
+  });
+
+  it("teaches from the whole of a long note", async () => {
+    const f = fixture(["vitamins.md"]);
+    f.library.notes.get("vitamins.md")!.body = `${"B1 to B3. ".repeat(11_000)}B5 is pantothenic acid.`;
+    f.progress.saveConcepts("vitamins.md", "hash:vitamins.md", [extracted("Coenzyme A")]);
+    const teach = vi.spyOn(tutor, "teach").mockResolvedValue({} as TeachReply);
+    await f.backend.teach("vitamin b5", ["vitamins.md"], [], "Start");
+    expect(teach.mock.calls[0][2]).toContain("B5 is pantothenic acid.");
+  });
+
+  it("teaches a note too long to send whole from the passages the lesson is on, every turn", async () => {
+    const f = fixture(["vitamins.md"]);
+    const filler = (h: string) => `## ${h}\n${"Some text about water-soluble vitamins in general.\n\n".repeat(2_000)}`;
+    f.library.notes.get("vitamins.md")!.body =
+      filler("Intro") +
+      filler("More") +
+      "## B5\nB5 is pantothenic acid.\n" +
+      filler("Others") +
+      "## B7\nBiotin is B7.\n" +
+      filler("End");
+    f.progress.saveConcepts("vitamins.md", "hash:vitamins.md", [extracted("Coenzyme A")]);
+    const teach = vi.spyOn(tutor, "teach").mockResolvedValue({} as TeachReply);
+    await f.backend.teach("vitamins", ["vitamins.md"], [], "What does B5 do?");
+    await f.backend.teach(
+      "vitamins",
+      ["vitamins.md"],
+      [
+        [true, "What does B5 do?"],
+        [false, "Good question."],
+      ],
+      "And biotin?",
+    );
+    const [first, second] = teach.mock.calls.map((c) => c[2]);
+    expect(first.length).toBeLessThan(410_000);
+    expect(first).toContain("B5 is pantothenic acid.");
+    expect(first).toContain("## B7");
+    expect(second).toContain("Biotin is B7.");
+  });
+
+  it("shares one limit between a quiz's notes, keeping the passages about its concepts", async () => {
+    const paths = Array.from({ length: 8 }, (_, i) => `n${i}.md`);
+    const f = fixture(paths);
+    for (const p of paths) {
+      const filler = `${"Unrelated filler sentence here.\n\n".repeat(1_500)}`;
+      f.library.notes.get(p)!.body = `## Start\n${filler}## Topic\nThe key fact of ${p} is here.\n${filler}`;
+      f.progress.saveConcepts(p, `hash:${p}`, [
+        { ...extracted(`Idea ${p}`), excerpt: `The key fact of ${p} is here.` },
+      ]);
+    }
+    const make = vi.spyOn(tutor, "makeQuiz").mockResolvedValue({ questions: [], mood: "curious", mascot_line: "Quiz" });
+    await f.backend
+      .makeQuiz(
+        f.progress.data.concepts.map((c) => c.id),
+        5,
+      )
+      .catch(() => {});
+    const materials = make.mock.calls[0][1];
+    expect(materials.reduce((n, m) => n + m.noteBody.length, 0)).toBeLessThanOrEqual(300_000);
+    for (const p of paths)
+      expect(materials.find((m) => m.concept.note_path === p)?.noteBody).toContain(`The key fact of ${p} is here.`);
+  });
+
   it("sends nothing from a source removed from the library, even mid-quiz", async () => {
     const f = setup();
     const id = f.progress.addMisconception(f.b.id, wrong.misconception);

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { clip, parseMarkdown, resolveWikilinks, splitFrontmatter } from "../src/core/notes";
+import { chunks, clip, parseMarkdown, resolveWikilinks, splitFrontmatter } from "../src/core/notes";
 import { cleanPage, split, PART_CHARS } from "../src/core/pdf";
 import { EXTRACT_VERSION, Progress, conceptQuestion, emptyProgress } from "../src/core/progress";
 import { review } from "../src/core/srs";
@@ -28,6 +28,21 @@ describe("notes", () => {
   });
   it("clips", () => {
     expect(clip("abcdef", 3)).toBe("abc\n…[truncated]");
+  });
+  it("keeps a note that fits whole", () => {
+    expect(chunks("# A\nshort", 100)).toEqual(["# A\nshort"]);
+  });
+  it("splits a long note between sections, packing small ones together", () => {
+    const a = `## A\n${"a".repeat(40)}\n`;
+    const b = `## B\n${"b".repeat(40)}\n`;
+    const c = `## C\n${"c".repeat(40)}\n`;
+    expect(chunks(a + b + c, 100)).toEqual([a + b, c]);
+  });
+  it("splits an oversized section between paragraphs, and ignores # lines in code", () => {
+    const code = "```\n# not a heading\n```\n";
+    const p1 = `${"x".repeat(50)}\n\n`;
+    const p2 = `${"y".repeat(50)}\n`;
+    expect(chunks(`## Big\n${code}${p1}${p2}`, 90)).toEqual([`## Big\n${code}${p1}`, p2]);
   });
 });
 
