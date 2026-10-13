@@ -6,8 +6,9 @@ import { fileURLToPath } from "node:url";
 export default defineConfig({
   test: {
     setupFiles: ["./tests/setup.ts"],
-    // Tests never touch the network. Happy DOM, unlike a browser, loads frames and styles even
-    // in the inert document replies are rendered into, so tests of untrusted HTML would reach out.
+    // Happy DOM, unlike a browser, loads frames, stylesheets and scripts even in the inert document
+    // replies are rendered into, so tests of untrusted HTML would fetch what it points at. This stops
+    // that loading; it doesn't block a fetch() a test makes itself.
     environmentOptions: {
       happyDOM: { settings: { disableIframePageLoading: true, disableCSSFileLoading: true, disableJavaScriptFileLoading: true } },
     },
