@@ -8,7 +8,9 @@
   const folders = api.folderSummary().filter((f) => f.count > 0);
   let query = $state("");
   let chosen = $state<string[]>([]);
-  const shown = $derived(folders.filter((f) => f.path.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 200));
+  const shown = $derived(
+    folders.filter((f) => f.path.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 200),
+  );
   const total = $derived.by(() => {
     // Don't double-count folders nested inside other chosen folders.
     const top = chosen.filter((c) => !chosen.some((o) => o !== c && (o === "/" || c.startsWith(o + "/"))));
@@ -25,7 +27,11 @@
 </script>
 
 <div class="setup">
-  <Clawd mood="encouraging" size={120} onpoke={() => store.say("proud", "Pick a folder and I'll teach it back to you!")} />
+  <Clawd
+    mood="encouraging"
+    size={120}
+    onpoke={() => store.say("proud", "Pick a folder and I'll teach it back to you!")}
+  />
   <h1>What should Clawd teach you?</h1>
   <p class="muted lede">
     Choose the folders with your study notes. Then pick which Markdown notes and PDFs in them Clawd should read, and
@@ -55,12 +61,17 @@
     <span class="muted small">
       {#if total}{total} file{total > 1 ? "s" : ""} · next you pick which ones Clawd reads (one Claude request per note){/if}
     </span>
-    <button class="btn primary lg" disabled={!chosen.length} onclick={start}>Start learning<Icon name="arrow" size={16} /></button>
+    <button class="btn primary lg" disabled={!chosen.length} onclick={start}
+      >Start learning<Icon name="arrow" size={16} /></button
+    >
   </div>
   <div class="or"><span>or</span></div>
-  <button class="btn" onclick={() => store.pickNote()}><Icon name="file" size={16} />Add individual notes or PDFs</button>
+  <button class="btn" onclick={() => store.pickNote()}
+    ><Icon name="file" size={16} />Add individual notes or PDFs</button
+  >
   <p class="faint small">
-    You can also right-click any note → <b>Quiz me on this</b>. Add or remove folders and notes anytime from the Library tab.
+    You can also right-click any note → <b>Quiz me on this</b>. Add or remove folders and notes anytime from the Library
+    tab.
   </p>
 </div>
 

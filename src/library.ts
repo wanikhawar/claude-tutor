@@ -84,8 +84,12 @@ export class Library {
   }
 
   private async readFile(file: TFile, path: string, token: symbol): Promise<string[]> {
-    const current = () => !this.disposed && this.loads.get(path)?.token === token && file.path === path &&
-      this.inScope(path) && this.app.vault.getAbstractFileByPath(path) === file;
+    const current = () =>
+      !this.disposed &&
+      this.loads.get(path)?.token === token &&
+      file.path === path &&
+      this.inScope(path) &&
+      this.app.vault.getAbstractFileByPath(path) === file;
     try {
       const notes = file.extension.toLowerCase() === "pdf" ? await this.readPdf(file) : [await this.readMarkdown(file)];
       if (!current()) return [];
@@ -117,7 +121,17 @@ export class Library {
   private async readMarkdown(file: TFile): Promise<Note> {
     const raw = await this.app.vault.cachedRead(file);
     const { title, body, links } = parseMarkdown(raw, file.basename);
-    return { key: file.path, path: file.path, title, body, hash: sha256(raw), links, kind: "markdown", group: null, pages: null };
+    return {
+      key: file.path,
+      path: file.path,
+      title,
+      body,
+      hash: sha256(raw),
+      links,
+      kind: "markdown",
+      group: null,
+      pages: null,
+    };
   }
 
   private async readPdf(file: TFile): Promise<Note[]> {

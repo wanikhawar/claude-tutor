@@ -56,9 +56,24 @@
 
   type Phase =
     | { p: "busy" }
-    | { p: "explain"; conceptId: number; attempt: number; peeked: boolean; gaps: Gap[]; lastExplanation: string; lastReteach: string }
+    | {
+        p: "explain";
+        conceptId: number;
+        attempt: number;
+        peeked: boolean;
+        gaps: Gap[];
+        lastExplanation: string;
+        lastReteach: string;
+      }
     | { p: "explained"; conceptId: number; attempt: number; gaps: Gap[]; lastExplanation: string; lastReteach: string }
-    | { p: "quiz"; questions: Question[]; idx: number; stage: "answer" | "graded" | "check" | "checked"; grade?: Grade; miscId?: number | null }
+    | {
+        p: "quiz";
+        questions: Question[];
+        idx: number;
+        stage: "answer" | "graded" | "check" | "checked";
+        grade?: Grade;
+        miscId?: number | null;
+      }
     | { p: "done" };
 
   // svelte-ignore state_referenced_locally
@@ -171,11 +186,14 @@
     phase = { p: "busy" };
     thinking = true;
     slow = false;
-    const slowTimer = setTimeout(() => (slow = true), 8_000);
+    const slowTimer = window.setTimeout(() => (slow = true), 8_000);
     store.say("thinking", line);
     void scrollDown();
-    if (hadFocus) void tick().then(() => { if (rootEl && !rootEl.contains(document.activeElement)) rootEl.focus({ preventScroll: true }); });
-    const retry = () => run(fn, line, undo);
+    if (hadFocus)
+      void tick().then(() => {
+        if (rootEl && !rootEl.contains(document.activeElement)) rootEl.focus({ preventScroll: true });
+      });
+    const retry = () => void run(fn, line, undo);
     try {
       await fn(ctl.signal);
     } catch (e) {
@@ -197,7 +215,7 @@
         store.say("confused", "Oops, I couldn't reach my brain.");
       }
     } finally {
-      clearTimeout(slowTimer);
+      window.clearTimeout(slowTimer);
       if (request === ctl) request = null;
       thinking = false;
       slow = false;
@@ -243,7 +261,15 @@
         : `**${question}**\n\nYou've met this idea before. Explain it simply, in your own words, as if to someone who's never heard of it.`;
       push({ kind: "say", md: intro, mood: "curious", source: c.note_path });
       store.say("curious", isNew(c) ? "New idea! Teach it to me." : "Let's see if this one stuck.");
-      phase = { p: "explain", conceptId: c.id, attempt: 0, peeked: false, gaps: [], lastExplanation: "", lastReteach: "" };
+      phase = {
+        p: "explain",
+        conceptId: c.id,
+        attempt: 0,
+        peeked: false,
+        gaps: [],
+        lastExplanation: "",
+        lastReteach: "",
+      };
       void focusInput();
     } else {
       push({ kind: "divider", text: `Quiz · ${step.count} questions` });
@@ -253,8 +279,12 @@
       phase = { p: "busy" };
       void run(async (signal) => {
         const set = await api.makeQuiz(step.conceptIds, step.count, signal);
-        if (!set.questions.length) throw "Claude didn't return any questions.";
-        push({ kind: "say", md: set.mascot_line || "Pop quiz! No peeking at your notes.", mood: asMood(set.mood, "curious") });
+        if (!set.questions.length) throw new Error("Claude didn't return any questions.");
+        push({
+          kind: "say",
+          md: set.mascot_line || "Pop quiz! No peeking at your notes.",
+          mood: asMood(set.mood, "curious"),
+        });
         store.say(asMood(set.mood, "curious"), set.mascot_line);
         phase = { p: "quiz", questions: set.questions, idx: 0, stage: "answer" };
         showQuestion(set.questions, 0);
@@ -267,7 +297,10 @@
     store.currentConceptId = null;
     push({ kind: "summary", mood: "celebrating" });
     const n = results.explained.filter((e) => e.passed).length;
-    store.say("celebrating", n ? `Session done! You can now explain ${n} more thing${n > 1 ? "s" : ""}.` : "Session done! Great work.");
+    store.say(
+      "celebrating",
+      n ? `Session done! You can now explain ${n} more thing${n > 1 ? "s" : ""}.` : "Session done! Great work.",
+    );
     void store.refresh();
   }
 
@@ -314,7 +347,8 @@
         const mood: Mood = ev.passed ? "celebrating" : asMood(ev.mood, "encouraging");
         push({ kind: "feedback", ev, stuck, conceptId: ph.conceptId, mood });
         store.say(mood, ev.mascot_line);
-        if (ph.attempt === 0) results.explained.push({ conceptId: ph.conceptId, name: c?.name ?? "", score: ev.score, passed: ev.passed });
+        if (ph.attempt === 0)
+          results.explained.push({ conceptId: ph.conceptId, name: c?.name ?? "", score: ev.score, passed: ev.passed });
         else if (ev.passed) {
           const r = results.explained.findLast((x) => x.conceptId === ph.conceptId);
           if (r) r.passed = true;
@@ -348,7 +382,8 @@
     if (r) {
       r.passed = true;
       r.self = true;
-    } else results.explained.push({ conceptId: ph.conceptId, name: c?.name ?? "", score: null, passed: true, self: true });
+    } else
+      results.explained.push({ conceptId: ph.conceptId, name: c?.name ?? "", score: null, passed: true, self: true });
     push({
       kind: "say",
       md: before
@@ -367,7 +402,11 @@
     if (!c) return;
     phase.peeked = true;
     const quote = c.excerpt ? `\n\n> ${c.excerpt}` : "";
-    push({ kind: "say", md: `**Hint from your notes:** ${c.summary}${quote}\n\nNow put it in your own words.`, mood: "encouraging" });
+    push({
+      kind: "say",
+      md: `**Hint from your notes:** ${c.summary}${quote}\n\nNow put it in your own words.`,
+      mood: "encouraging",
+    });
     store.say("encouraging", "A little nudge. Now make it yours!");
     void focusInput();
   }
@@ -394,7 +433,14 @@
     choice = null;
     confidence = null;
     needConfidence = false;
-    activeQuestionId = push({ kind: "question", q: questions[idx], n: idx + 1, total: questions.length, answered: null, mood: "curious" });
+    activeQuestionId = push({
+      kind: "question",
+      q: questions[idx],
+      n: idx + 1,
+      total: questions.length,
+      answered: null,
+      mood: "curious",
+    });
     if (!isMcq(questions[idx])) void focusInput();
     else void tick().then(() => rootEl?.focus({ preventScroll: true }));
   }
@@ -425,20 +471,24 @@
     });
     const kept = draft;
     draft = "";
-    void run(async (signal) => {
-      const out = await api.gradeAnswer(q, mcq ? chosen : null, text, conf, img.inputs, signal);
-      const qm = msgs.findLast((m) => m.kind === "question");
-      if (qm && qm.kind === "question" && mcq) qm.answered = chosen;
-      const mood = asMood(out.grade.mood, out.grade.correct ? "happy" : "encouraging");
-      push({ kind: "grade", g: out.grade, q, mood });
-      store.say(mood, out.grade.mascot_line);
-      results.quiz.push({ score: out.grade.score, correct: out.grade.correct });
-      const needsCheck = !out.grade.correct && !!out.grade.check_question;
-      phase = { ...ph, stage: needsCheck ? "check" : "graded", grade: out.grade, miscId: out.misconception_id };
-      if (needsCheck) void focusInput();
-      else void tick().then(() => rootEl?.focus({ preventScroll: true }));
-      void store.refresh();
-    }, "Checking your answer…", () => unsend(sent, kept, img.taken));
+    void run(
+      async (signal) => {
+        const out = await api.gradeAnswer(q, mcq ? chosen : null, text, conf, img.inputs, signal);
+        const qm = msgs.findLast((m) => m.kind === "question");
+        if (qm && qm.kind === "question" && mcq) qm.answered = chosen;
+        const mood = asMood(out.grade.mood, out.grade.correct ? "happy" : "encouraging");
+        push({ kind: "grade", g: out.grade, q, mood });
+        store.say(mood, out.grade.mascot_line);
+        results.quiz.push({ score: out.grade.score, correct: out.grade.correct });
+        const needsCheck = !out.grade.correct && !!out.grade.check_question;
+        phase = { ...ph, stage: needsCheck ? "check" : "graded", grade: out.grade, miscId: out.misconception_id };
+        if (needsCheck) void focusInput();
+        else void tick().then(() => rootEl?.focus({ preventScroll: true }));
+        void store.refresh();
+      },
+      "Checking your answer…",
+      () => unsend(sent, kept, img.taken),
+    );
   }
 
   function submitCheck() {
@@ -451,23 +501,27 @@
     const sent = push({ kind: "me", text, images: img.urls });
     const kept = draft;
     draft = "";
-    void run(async (signal) => {
-      const r = await api.checkAnswer({
-        signal,
-        conceptId: ph.questions[ph.idx].concept_id,
-        question: g.check_question,
-        key: g.check_answer,
-        misconception: g.misconception,
-        answer: text,
-        misconceptionId: ph.miscId ?? null,
-        images: img.inputs,
-      });
-      const mood = asMood(r.mood, r.understood ? "proud" : "encouraging");
-      push({ kind: "check", r, mood });
-      store.say(mood, r.mascot_line);
-      phase = { ...ph, stage: "checked" };
-      void store.refresh();
-    }, "Did it click? Let's see…", () => unsend(sent, kept, img.taken));
+    void run(
+      async (signal) => {
+        const r = await api.checkAnswer({
+          signal,
+          conceptId: ph.questions[ph.idx].concept_id,
+          question: g.check_question,
+          key: g.check_answer,
+          misconception: g.misconception,
+          answer: text,
+          misconceptionId: ph.miscId ?? null,
+          images: img.inputs,
+        });
+        const mood = asMood(r.mood, r.understood ? "proud" : "encouraging");
+        push({ kind: "check", r, mood });
+        store.say(mood, r.mascot_line);
+        phase = { ...ph, stage: "checked" };
+        void store.refresh();
+      },
+      "Did it click? Let's see…",
+      () => unsend(sent, kept, img.taken),
+    );
   }
 
   function nextQuestion() {
@@ -516,7 +570,9 @@
       const q = ph.questions[ph.idx];
       return {
         conceptId: q.concept_id,
-        text: `Quiz question: ${q.question}\nAnswer key: ${q.answer}` + (ph.grade ? `\nYour grading feedback: ${ph.grade.feedback}` : ""),
+        text:
+          `Quiz question: ${q.question}\nAnswer key: ${q.answer}` +
+          (ph.grade ? `\nYour grading feedback: ${ph.grade.feedback}` : ""),
       };
     }
     return { conceptId: null, text: "General study session." };
@@ -533,14 +589,22 @@
     // Without turns about a note you've since removed; kept that way once this reply arrives.
     const history = api.chatHistory(chat);
     const back = phase;
-    void run(async (signal) => {
-      const r = await api.askTutor(s.conceptId, s.text, history, message, img.inputs, signal);
-      chat = [...history, [true, message + (img.urls.length ? " [attached an image]" : ""), s.conceptId], [false, r.reply, s.conceptId]];
-      const mood = asMood(r.mood, "happy");
-      push({ kind: "say", md: r.reply, mood });
-      store.say(mood, r.mascot_line);
-      phase = back;
-    }, "Good question! Thinking…", () => unsend(sent, kept, img.taken, "ask"));
+    void run(
+      async (signal) => {
+        const r = await api.askTutor(s.conceptId, s.text, history, message, img.inputs, signal);
+        chat = [
+          ...history,
+          [true, message + (img.urls.length ? " [attached an image]" : ""), s.conceptId],
+          [false, r.reply, s.conceptId],
+        ];
+        const mood = asMood(r.mood, "happy");
+        push({ kind: "say", md: r.reply, mood });
+        store.say(mood, r.mascot_line);
+        phase = back;
+      },
+      "Good question! Thinking…",
+      () => unsend(sent, kept, img.taken, "ask"),
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -593,7 +657,10 @@
         if (t?.getAttribute("role") === "radio" && rootEl?.contains(t)) t.click();
         submitAnswer();
       }
-    } else if (e.key === "Enter" && (phase.p === "explained" || (phase.p === "quiz" && (phase.stage === "graded" || phase.stage === "checked")))) {
+    } else if (
+      e.key === "Enter" &&
+      (phase.p === "explained" || (phase.p === "quiz" && (phase.stage === "graded" || phase.stage === "checked")))
+    ) {
       e.preventDefault();
       primary();
     }
@@ -612,7 +679,8 @@
 
   /** Arrow keys move between the confidence options, like native radios. */
   function confidenceKey(e: KeyboardEvent) {
-    const dir = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+    const dir =
+      e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
     if (!dir) return;
     e.preventDefault();
     e.stopPropagation();
@@ -630,10 +698,14 @@
   }
 
   const live = {
-    unfinished: () => phase.p !== "done" && (stepIdx > 0 || msgs.some((m) => m.kind === "me") || !!draft.trim() || !!ask.trim()),
+    unfinished: () =>
+      phase.p !== "done" && (stepIdx > 0 || msgs.some((m) => m.kind === "me") || !!draft.trim() || !!ask.trim()),
     describe: () => {
       const answered = msgs.filter((m) => m.kind === "me").length;
-      return `You're on step ${Math.min(stepIdx + 1, steps.length)} of ${steps.length}` + (answered ? ` with ${answered} answer${answered > 1 ? "s" : ""} so far` : "");
+      return (
+        `You're on step ${Math.min(stepIdx + 1, steps.length)} of ${steps.length}` +
+        (answered ? ` with ${answered} answer${answered > 1 ? "s" : ""} so far` : "")
+      );
     },
     addExplain: (conceptId: number) => {
       if (phase.p === "done") {
@@ -704,7 +776,9 @@
             class="step"
             class:done={i < stepIdx || phase.p === "done"}
             class:now={i === stepIdx && phase.p !== "done"}
-            title={s.kind === "explain" ? `Explain: ${store.concept(s.conceptId)?.name ?? ""}` : `Quiz (${s.count} questions)`}
+            title={s.kind === "explain"
+              ? `Explain: ${store.concept(s.conceptId)?.name ?? ""}`
+              : `Quiz (${s.count} questions)`}
           >
             <Icon name={s.kind === "explain" ? "brain" : "zap"} size={13} />
           </span>
@@ -726,7 +800,9 @@
         {:else if m.kind === "me"}
           <div class="me">
             <div class="bubble mine">
-              {#if m.images?.length}<div class="mine-imgs"><Thumbs images={m.images.map((url) => ({ url }))} size={96} /></div>{/if}
+              {#if m.images?.length}<div class="mine-imgs">
+                  <Thumbs images={m.images.map((url) => ({ url }))} size={96} />
+                </div>{/if}
               {#if m.text}<Markdown md={m.text} />{/if}
               {#if m.note}<small>{m.note}</small>{/if}
             </div>
@@ -734,7 +810,12 @@
         {:else}
           <div class="clawd-row" data-msg={m.id}>
             <div class="avatar">
-              <Clawd mood={m.id === lastClawd && !thinking ? store.liveMood : m.mood} size={40} animate={m.id === lastClawd && !thinking} follow={false} />
+              <Clawd
+                mood={m.id === lastClawd && !thinking ? store.liveMood : m.mood}
+                size={40}
+                animate={m.id === lastClawd && !thinking}
+                follow={false}
+              />
             </div>
             <div class="bubble ct-card" class:err={m.kind === "error"}>
               {#if m.kind === "say"}
@@ -749,9 +830,11 @@
                   ev={m.ev}
                   stuck={m.stuck}
                   latest={m.id === lastClawd}
-                  interactive={!thinking && (phase.p === "explain" || phase.p === "explained") && phase.conceptId === m.conceptId}
+                  interactive={!thinking &&
+                    (phase.p === "explain" || phase.p === "explained") &&
+                    phase.conceptId === m.conceptId}
                   conceptId={m.conceptId}
-                  onprereq={(id) => learnPrereq(id, m.conceptId)}
+                  onprereq={(id: number) => learnPrereq(id, m.conceptId)}
                 />
               {:else if m.kind === "question"}
                 <QuestionCard
@@ -760,8 +843,11 @@
                   total={m.total}
                   choice={m.id === activeQuestionId ? choice : null}
                   answered={m.answered}
-                  interactive={m.id === activeQuestionId && phase.p === "quiz" && phase.stage === "answer" && mode === "answer"}
-                  onchoose={(i) => (choice = i)}
+                  interactive={m.id === activeQuestionId &&
+                    phase.p === "quiz" &&
+                    phase.stage === "answer" &&
+                    mode === "answer"}
+                  onchoose={(i: number) => (choice = i)}
                 />
               {:else if m.kind === "grade"}
                 <GradeCard g={m.g} q={m.q} latest={m.id === lastClawd} onexplain={() => explainNext(m.q)} />
@@ -776,7 +862,14 @@
                   <p class="muted small">{m.text}</p>
                   {#if m.id === lastClawd && m.retry}
                     {@const retry = m.retry}
-                    <button class="btn sm" disabled={thinking} onclick={() => { msgs = msgs.filter((x) => x.id !== m.id); retry(); }}><Icon name="retry" size={15} />Try again</button>
+                    <button
+                      class="btn sm"
+                      disabled={thinking}
+                      onclick={() => {
+                        msgs = msgs.filter((x) => x.id !== m.id);
+                        retry();
+                      }}><Icon name="retry" size={15} />Try again</button
+                    >
                   {/if}
                 </div>
               {:else if m.kind === "summary"}
@@ -787,9 +880,16 @@
                     <ul>
                       {#each results.explained as r}
                         <li>
-                          <Ring value={(r.score ?? 70) / 100} size={22} width={3} color={r.score === null ? "var(--text-3)" : scoreColor(r.score)} />
+                          <Ring
+                            value={(r.score ?? 70) / 100}
+                            size={22}
+                            width={3}
+                            color={r.score === null ? "var(--text-3)" : scoreColor(r.score)}
+                          />
                           <span><Markdown md={r.name} inline /></span>
-                          <span class="faint small">{r.self ? "marked as understood by you" : r.passed ? "nailed it" : "keep practicing"}</span>
+                          <span class="faint small"
+                            >{r.self ? "marked as understood by you" : r.passed ? "nailed it" : "keep practicing"}</span
+                          >
                         </li>
                       {/each}
                     </ul>
@@ -814,9 +914,15 @@
                       {/each}
                     </ul>
                   {/if}
-                  <p class="muted small">Clawd scheduled your next reviews. Concepts you struggled with come back sooner.</p>
+                  <p class="muted small">
+                    Clawd scheduled your next reviews. Concepts you struggled with come back sooner.
+                  </p>
                   {#if shaky.length}
-                    <button class="btn sm" onclick={() => store.startQuiz("Shaky concepts", shaky, Math.min(6, Math.max(3, shaky.length * 2)))}>
+                    <button
+                      class="btn sm"
+                      onclick={() =>
+                        store.startQuiz("Shaky concepts", shaky, Math.min(6, Math.max(3, shaky.length * 2)))}
+                    >
                       <Icon name="zap" size={15} />Quiz the {shaky.length} shaky one{shaky.length > 1 ? "s" : ""} now
                     </button>
                   {/if}
@@ -829,8 +935,12 @@
       {#if thinking}
         <div class="clawd-row thinking-row" aria-live="polite">
           <div class="avatar"><Clawd mood="thinking" size={40} follow={false} /></div>
-          <div class="bubble ct-card typing" aria-label="Clawd is thinking"><span></span><span></span><span></span></div>
-          {#if slow}<p class="slow faint small">Still thinking… long notes and higher effort take a little longer.</p>{/if}
+          <div class="bubble ct-card typing" aria-label="Clawd is thinking">
+            <span></span><span></span><span></span>
+          </div>
+          {#if slow}<p class="slow faint small">
+              Still thinking… long notes and higher effort take a little longer.
+            </p>{/if}
         </div>
       {/if}
     </div>
@@ -840,8 +950,16 @@
     <div class="col">
       {#if canAsk}
         <div class="modes">
-          <button class:sel={mode === "answer"} onclick={() => { mode = "answer"; void focusInput(); }}>Answer</button>
-          <button class:sel={mode === "ask"} onclick={() => (mode = "ask")}><Icon name="chat" size={14} />Ask Clawd</button>
+          <button
+            class:sel={mode === "answer"}
+            onclick={() => {
+              mode = "answer";
+              void focusInput();
+            }}>Answer</button
+          >
+          <button class:sel={mode === "ask"} onclick={() => (mode = "ask")}
+            ><Icon name="chat" size={14} />Ask Clawd</button
+          >
         </div>
       {/if}
 
@@ -849,14 +967,29 @@
         {#if thinking}
           <div class="busy-row">
             <span class="muted small">{slow ? "Still thinking…" : "Clawd is thinking…"}</span>
-            <button class="btn sm" onclick={cancel} title="Stop this request (Esc)"><Icon name="x" size={14} />Cancel</button>
+            <button class="btn sm" onclick={cancel} title="Stop this request (Esc)"
+              ><Icon name="x" size={14} />Cancel</button
+            >
           </div>
         {:else}
           <div class="busy-row">
             <span class="muted small">Stopped before this step was ready.</span>
             <span class="row-actions">
-              <button class="btn sm ghost" onclick={() => { stalled = null; continueSession(); }}>Skip this step</button>
-              <button class="btn sm" disabled={!stalled} onclick={() => { msgs = msgs.filter((x) => !(x.kind === "error" && x.id === lastClawd)); stalled?.(); }}><Icon name="retry" size={14} />Try again</button>
+              <button
+                class="btn sm ghost"
+                onclick={() => {
+                  stalled = null;
+                  continueSession();
+                }}>Skip this step</button
+              >
+              <button
+                class="btn sm"
+                disabled={!stalled}
+                onclick={() => {
+                  msgs = msgs.filter((x) => !(x.kind === "error" && x.id === lastClawd));
+                  stalled?.();
+                }}><Icon name="retry" size={14} />Try again</button
+              >
             </span>
           </div>
         {/if}
@@ -874,12 +1007,14 @@
       {:else if explainPhase}
         {#if explainPhase.attempt >= 3}
           <p class="nudge">
-            <Icon name="flag" size={14} />You've worked hard on this one. If it makes sense now, click <b>I understand now</b> to
-            move on; it'll come back in a later review either way.
+            <Icon name="flag" size={14} />You've worked hard on this one. If it makes sense now, click
+            <b>I understand now</b> to move on; it'll come back in a later review either way.
           </p>
         {/if}
         {#if turnPrompt}
-          <p class="turn" id="turn-prompt"><Icon name="chat" size={14} /><span><b>Your turn:</b> <Markdown md={turnPrompt} inline /></span></p>
+          <p class="turn" id="turn-prompt">
+            <Icon name="chat" size={14} /><span><b>Your turn:</b> <Markdown md={turnPrompt} inline /></span>
+          </p>
         {/if}
         <Composer
           bind:value={draft}
@@ -887,7 +1022,11 @@
           attachments={att}
           label="Your explanation"
           describedby={turnPrompt ? "turn-prompt" : undefined}
-          placeholder={turnPrompt ? "Answer Clawd's prompt above…" : explainPhase.attempt ? "Explain it again, fixing the gaps…" : "Your explanation, in your own words…"}
+          placeholder={turnPrompt
+            ? "Answer Clawd's prompt above…"
+            : explainPhase.attempt
+              ? "Explain it again, fixing the gaps…"
+              : "Your explanation, in your own words…"}
           sendLabel={explainPhase.attempt ? "Explain again" : "Submit"}
           onsend={() => submitExplain()}
         />
@@ -896,7 +1035,10 @@
             {#if explainPhase.attempt === 0 && !explainPhase.peeked}
               <button class="btn ghost sm" onclick={hint}><Icon name="eye" size={15} />Hint</button>
             {/if}
-            <button class="btn ghost sm self" class:confused={explainPhase.attempt > 0} onclick={() => submitExplain(true)}
+            <button
+              class="btn ghost sm self"
+              class:confused={explainPhase.attempt > 0}
+              onclick={() => submitExplain(true)}
               ><Icon name="help" size={15} />{explainPhase.attempt ? "Still confused" : "I'm stuck"}</button
             >
             <button
@@ -910,7 +1052,9 @@
       {:else if phase.p === "explained"}
         <div class="row-actions">
           <button class="btn ghost" onclick={explainAgain}>Explain once more</button>
-          <button class="btn primary lg" onclick={continueSession}>{isLast ? "Finish session" : "Continue"}<Icon name="arrow" size={16} /></button>
+          <button class="btn primary lg" onclick={continueSession}
+            >{isLast ? "Finish session" : "Continue"}<Icon name="arrow" size={16} /></button
+          >
         </div>
       {:else if phase.p === "quiz" && currentQ}
         {#if phase.stage === "answer"}
@@ -927,7 +1071,14 @@
           {/if}
           <div class="ct-composer-footer">
             <span class="faint small" id="conf-label">How sure?</span>
-            <div class="conf" class:need={needConfidence} role="radiogroup" aria-labelledby="conf-label" tabindex="-1" onkeydown={confidenceKey}>
+            <div
+              class="conf"
+              class:need={needConfidence}
+              role="radiogroup"
+              aria-labelledby="conf-label"
+              tabindex="-1"
+              onkeydown={confidenceKey}
+            >
               {#each CONFIDENCE as [id, label, key], i}
                 <button
                   role="radio"
@@ -964,14 +1115,19 @@
         {:else}
           <div class="row-actions">
             <button class="btn primary lg" onclick={nextQuestion}>
-              {phase.idx + 1 < phase.questions.length ? "Next question" : isLast ? "Finish" : "Continue"}<Icon name="arrow" size={16} />
+              {phase.idx + 1 < phase.questions.length ? "Next question" : isLast ? "Finish" : "Continue"}<Icon
+                name="arrow"
+                size={16}
+              />
             </button>
           </div>
         {/if}
       {:else if phase.p === "done"}
         <div class="row-actions">
           <button class="btn" onclick={end}>Back to Today</button>
-          <button class="btn primary lg" onclick={() => store.startStudy()}>Keep going<Icon name="arrow" size={16} /></button>
+          <button class="btn primary lg" onclick={() => store.startStudy()}
+            >Keep going<Icon name="arrow" size={16} /></button
+          >
         </div>
       {/if}
       <!-- Narrow panes have no room in the header, so the model and effort switches sit under the entry box. -->

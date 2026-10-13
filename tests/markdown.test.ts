@@ -9,10 +9,18 @@ import { store } from "../src/ui/lib/store.svelte";
 import { fixture } from "./helpers";
 
 // Obsidian adds this to every element.
-Object.defineProperty(HTMLElement.prototype, "empty", { configurable: true, value() { this.replaceChildren(); } });
+Object.defineProperty(HTMLElement.prototype, "empty", {
+  configurable: true,
+  value() {
+    this.replaceChildren();
+  },
+});
 // And this global (only the options the plugin uses).
 Object.assign(globalThis, {
-  createEl(tag: string, o: { cls?: string; href?: string; title?: string; text?: string; attr?: Record<string, string> } = {}) {
+  createEl(
+    tag: string,
+    o: { cls?: string; href?: string; title?: string; text?: string; attr?: Record<string, string> } = {},
+  ) {
     const el = document.createElement(tag);
     if (o.cls) el.className = o.cls;
     if (o.href) el.setAttribute("href", o.href);
@@ -69,7 +77,9 @@ describe("rendering replies", () => {
   });
 
   it("turns remote images into links and keeps local ones", () => {
-    const { view } = render(`<p>See <img alt="diagram" src="${EVIL}"> and <img src="app://local/vault/pic.png" alt="mine"> or <img src="//evil.example/x"></p>`);
+    const { view } = render(
+      `<p>See <img alt="diagram" src="${EVIL}"> and <img src="app://local/vault/pic.png" alt="mine"> or <img src="//evil.example/x"></p>`,
+    );
     const imgs = [...view.querySelectorAll("img")];
     expect(imgs.map((i) => i.getAttribute("src"))).toEqual(["app://local/vault/pic.png"]);
     const link = view.querySelector("a")!;
@@ -99,7 +109,10 @@ describe("rendering replies", () => {
   });
 
   it("checks output that arrives after the first pass too", async () => {
-    const { view } = render("<p>first</p>", `<p>late <img src="${EVIL}" alt="late"></p><iframe src="${EVIL}"></iframe>`);
+    const { view } = render(
+      "<p>first</p>",
+      `<p>late <img src="${EVIL}" alt="late"></p><iframe src="${EVIL}"></iframe>`,
+    );
     await new Promise((r) => setTimeout(r, 10));
     expect(view.textContent).toBe("firstlate late");
     expect(view.innerHTML).not.toContain("<img");
@@ -107,7 +120,9 @@ describe("rendering replies", () => {
   });
 
   it("checks later changes deep inside what's already shown", async () => {
-    const { view, targets } = render(`<p>Shown <span class="slot"></span> <img class="local" src="app://local/a.png"></p>`);
+    const { view, targets } = render(
+      `<p>Shown <span class="slot"></span> <img class="local" src="app://local/a.png"></p>`,
+    );
     const original = targets[0];
     // What Obsidian does after its first pass, from an embed loading to a processor setting a source.
     original.querySelector(".slot")!.innerHTML = `<img alt="late" src="${EVIL}"><iframe src="${EVIL}"></iframe>`;
@@ -122,7 +137,9 @@ describe("rendering replies", () => {
   });
 
   it("passes clicks to Obsidian's own buttons on the original", async () => {
-    const { view, targets } = render(`<pre><code>let a = 1</code><button class="copy-code-button"><svg><path></path></svg></button></pre><p><a class="external-link" href="https://example.com">site</a></p>`);
+    const { view, targets } = render(
+      `<pre><code>let a = 1</code><button class="copy-code-button"><svg><path></path></svg></button></pre><p><a class="external-link" href="https://example.com">site</a></p>`,
+    );
     const copy = vi.fn((e: Event) => e.preventDefault());
     const opened = vi.fn();
     targets[0].querySelector("button")!.addEventListener("click", copy);
@@ -138,7 +155,11 @@ describe("rendering replies", () => {
 
   it("unwraps an inline reply's paragraph", () => {
     const f = fixture();
-    store.init(f.backend, () => f.settings, async () => {});
+    store.init(
+      f.backend,
+      () => f.settings,
+      async () => {},
+    );
     renderAs("<p>Just <em>this</em></p>");
     const target = document.body.appendChild(document.createElement("div"));
     const cmp = mount(Markdown, { target, props: { md: "Just *this*", inline: true } });

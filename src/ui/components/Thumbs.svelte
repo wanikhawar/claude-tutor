@@ -1,7 +1,14 @@
 <!-- Image previews (removable while composing, clickable to enlarge in the thread). -->
 <script lang="ts">
-  let { images, onremove, size = 64 }: { images: { id?: number; url: string; name?: string }[]; onremove?: (i: number) => void; size?: number } =
-    $props();
+  let {
+    images,
+    onremove,
+    size = 64,
+  }: {
+    images: { id?: number; url: string; name?: string }[];
+    onremove?: (i: number) => void;
+    size?: number;
+  } = $props();
   let zoom = $state<string | null>(null);
 </script>
 
@@ -9,9 +16,13 @@
   <div class="thumbs">
     {#each images as im, i (im.id ?? im.url)}
       <div class="thumb" style="width: {size}px; height: {size}px">
-        <button type="button" class="img" title={im.name ?? "image"} onclick={() => (zoom = im.url)}><img src={im.url} alt={im.name ?? "attached image"} /></button>
+        <button type="button" class="img" title={im.name ?? "image"} onclick={() => (zoom = im.url)}
+          ><img src={im.url} alt={im.name ?? "attached image"} /></button
+        >
         {#if onremove}
-          <button type="button" class="rm" aria-label="Remove image" title="Remove" onclick={() => onremove(i)}>×</button>
+          <button type="button" class="rm" aria-label="Remove image" title="Remove" onclick={() => onremove(i)}
+            >×</button
+          >
         {/if}
       </div>
     {/each}
@@ -19,7 +30,9 @@
 {/if}
 
 {#if zoom}
-  <button type="button" class="zoom" aria-label="Close preview" onclick={() => (zoom = null)}><img src={zoom} alt="preview" /></button>
+  <button type="button" class="zoom" aria-label="Close preview" onclick={() => (zoom = null)}
+    ><img src={zoom} alt="preview" /></button
+  >
 {/if}
 
 <style>

@@ -140,7 +140,9 @@ export function evaluateFeynman(c: RequestOptions, i: FeynmanInput): Promise<Fey
       }`;
   const prompt = `Concept: **${i.concept.name}**
 The learner was asked: "${i.question || `Explain ${i.concept.name}`}"${
-    i.followUp?.trim() ? `\nAfter the last attempt you prompted them: "${i.followUp.trim()}". This attempt may answer that prompt.` : ""
+    i.followUp?.trim()
+      ? `\nAfter the last attempt you prompted them: "${i.followUp.trim()}". This attempt may answer that prompt.`
+      : ""
   }
 Judge their explanation as an answer to that question (the core of this concept), not as a summary of the whole note.
 Summary (from indexing): ${i.concept.summary}
@@ -173,13 +175,26 @@ export interface QuizMisconception {
   text: string;
 }
 
-export function makeQuiz(c: RequestOptions, items: QuizMaterial[], misconceptions: QuizMisconception[], n: number): Promise<QuizSet> {
+export function makeQuiz(
+  c: RequestOptions,
+  items: QuizMaterial[],
+  misconceptions: QuizMisconception[],
+  n: number,
+): Promise<QuizSet> {
   const schema = obj({
     questions: {
       type: "array",
       items: obj({
-        concept_id: { type: "integer", enum: items.map((m) => m.concept.id), description: "ID of the concept being tested" },
-        misconception_id: { type: ["integer", "null"], enum: [null, ...misconceptions.map((m) => m.id)], description: "ID of the existing misconception being tested, else null" },
+        concept_id: {
+          type: "integer",
+          enum: items.map((m) => m.concept.id),
+          description: "ID of the concept being tested",
+        },
+        misconception_id: {
+          type: ["integer", "null"],
+          enum: [null, ...misconceptions.map((m) => m.id)],
+          description: "ID of the existing misconception being tested, else null",
+        },
         concept: { type: "string", description: "exact concept name from the list" },
         kind: { type: "string", enum: ["mcq", "short", "explain_why", "spot_error"] },
         question: str,
@@ -193,9 +208,14 @@ export function makeQuiz(c: RequestOptions, items: QuizMaterial[], misconception
     mascot_line: str,
   });
   const material = items
-    .map((m) => `### Concept ID ${m.concept.id}: ${m.concept.name}\nSummary: ${m.concept.summary}\nFrom note "${m.noteTitle}":\n${m.noteBody}\n`)
+    .map(
+      (m) =>
+        `### Concept ID ${m.concept.id}: ${m.concept.name}\nSummary: ${m.concept.summary}\nFrom note "${m.noteTitle}":\n${m.noteBody}\n`,
+    )
     .join("\n");
-  const misc = misconceptions.length ? misconceptions.map((m) => `- Misconception ID ${m.id} (concept ID ${m.concept_id}): ${m.text}`).join("\n") : "none recorded";
+  const misc = misconceptions.length
+    ? misconceptions.map((m) => `- Misconception ID ${m.id} (concept ID ${m.concept_id}): ${m.text}`).join("\n")
+    : "none recorded";
   const prompt = `Write a ${n}-question quiz on the concepts below, based on the learner's notes.
 - Mix the kinds: \`mcq\` (4 options; distractors must be plausible misconceptions, not jokes), \`short\` (one-sentence factual recall), \`explain_why\` (asks for reasoning), \`spot_error\` (present a subtly flawed statement and ask what's wrong with it).
 - Test understanding, not memorized wording. Vary difficulty. Spread across the concepts.
@@ -315,7 +335,8 @@ ${message || "(see the attached image)"}
 
 /** Buttons in the Teach composer send these instead of free text. */
 export const TEACH_CONTROLS: Record<string, string> = {
-  start: "(The learner just chose this topic. Open the lesson: find out briefly what they already know, with one question.)",
+  start:
+    "(The learner just chose this topic. Open the lesson: find out briefly what they already know, with one question.)",
   hint: "(The learner pressed HINT: give one small hint toward the current question. Do not reveal the answer.)",
   show: "(The learner pressed SHOW ME: they are stuck. Now explain this step fully and clearly, then move on with a new question.)",
   next: "(The learner pressed I GET IT: they understand this step. Move to the next step of the plan, optionally with a quick check.)",

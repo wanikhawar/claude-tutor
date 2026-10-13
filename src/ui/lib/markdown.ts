@@ -8,15 +8,43 @@ import { MarkdownRenderer, type App, type Component } from "obsidian";
 
 /** Elements that fetch something (or restyle the app) as soon as they're shown. */
 const DROP = new Set([
-  "iframe", "frame", "frameset", "object", "embed", "applet", "portal",
-  "video", "audio", "source", "track", "picture",
-  "link", "style", "meta", "base", "script",
+  "iframe",
+  "frame",
+  "frameset",
+  "object",
+  "embed",
+  "applet",
+  "portal",
+  "video",
+  "audio",
+  "source",
+  "track",
+  "picture",
+  "link",
+  "style",
+  "meta",
+  "base",
+  "script",
   // SVG
-  "image", "use", "feimage",
+  "image",
+  "use",
+  "feimage",
 ]);
 
 /** Attributes that fetch something; `src` is kept only on images that are already local. */
-const FETCHING = new Set(["src", "srcset", "poster", "background", "lowsrc", "dynsrc", "data", "ping", "formaction", "action", "xlink:href"]);
+const FETCHING = new Set([
+  "src",
+  "srcset",
+  "poster",
+  "background",
+  "lowsrc",
+  "dynsrc",
+  "data",
+  "ping",
+  "formaction",
+  "action",
+  "xlink:href",
+]);
 
 const LOCAL = /^(app|data|blob):/i;
 
@@ -79,7 +107,13 @@ function imageLink(img: Element, src: string): Node {
  * checked copies, made again whenever the original changes. Clicks on a copy are passed to
  * the original, so Obsidian's own buttons (copy code, fold a callout) still work.
  */
-export function renderMarkdown(app: App, md: string, target: HTMLElement, owner: Component, inline = false): () => void {
+export function renderMarkdown(
+  app: App,
+  md: string,
+  target: HTMLElement,
+  owner: Component,
+  inline = false,
+): () => void {
   const inert = document.implementation.createHTMLDocument("").body;
   const source = (): Node => {
     const only = inert.firstElementChild;
@@ -94,11 +128,13 @@ export function renderMarkdown(app: App, md: string, target: HTMLElement, owner:
     // Links open from the copy itself.
     if (!n || (n as Element).closest?.("a")) return;
     const path: number[] = [];
-    for (; n && n !== target; n = n.parentNode) path.unshift(Array.prototype.indexOf.call(n.parentNode?.childNodes ?? [], n));
+    for (; n && n !== target; n = n.parentNode)
+      path.unshift(Array.prototype.indexOf.call(n.parentNode?.childNodes ?? [], n));
     if (n !== target) return;
     let original: Node | undefined = source();
     for (const i of path) original = original?.childNodes[i];
-    if (original && !original.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }))) e.preventDefault();
+    if (original && !original.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })))
+      e.preventDefault();
   };
   target.addEventListener("click", forward);
 

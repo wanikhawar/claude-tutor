@@ -66,7 +66,7 @@ export function checkTextLayer(pages: string[]) {
   }
 }
 
-const LIGATURES: Record<string, string> = { "ﬁ": "fi", "ﬂ": "fl", "ﬀ": "ff", "ﬃ": "ffi", "ﬄ": "ffl" };
+const LIGATURES: Record<string, string> = { ﬁ: "fi", ﬂ: "fl", ﬀ: "ff", ﬃ: "ffi", ﬄ: "ffl" };
 
 function loneBullet(line: string): string | null {
   if (line === "•" || line === "◦" || line === "▪") return "•";
@@ -87,7 +87,10 @@ export function cleanPage(raw: string): string {
   raw = raw.replace(/[ﬀ-ﬄ]/g, (c) => LIGATURES[c] ?? c);
   const paras: string[] = [];
   let bullet: string | null = null;
-  for (const block of raw.split("\n\n").map((b) => b.trim()).filter(Boolean)) {
+  for (const block of raw
+    .split("\n\n")
+    .map((b) => b.trim())
+    .filter(Boolean)) {
     const lines = block
       .split("\n")
       .map((l) => l.split(/\s+/).filter(Boolean).join(" "))

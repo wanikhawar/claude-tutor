@@ -9,7 +9,10 @@ import { statusGap } from "../src/view";
 
 describe("notes", () => {
   it("strips frontmatter", () => {
-    expect(splitFrontmatter("---\ntitle: Hi\ntags: [a]\n---\n# Body\ntext")).toEqual(["title: Hi\ntags: [a]", "# Body\ntext"]);
+    expect(splitFrontmatter("---\ntitle: Hi\ntags: [a]\n---\n# Body\ntext")).toEqual([
+      "title: Hi\ntags: [a]",
+      "# Body\ntext",
+    ]);
     expect(splitFrontmatter("# No front")[1]).toBe("# No front");
   });
   it("resolves wikilinks", () => {
@@ -52,11 +55,20 @@ describe("pdf", () => {
 });
 
 describe("progress + srs", () => {
-  const c = (name: string, questions: string[] = []) => ({ name, summary: "s", prerequisites: [], excerpt: "", questions });
+  const c = (name: string, questions: string[] = []) => ({
+    name,
+    summary: "s",
+    prerequisites: [],
+    excerpt: "",
+    questions,
+  });
   it("re-indexing keeps progress and drops stale concepts", () => {
     const p = new Progress(emptyProgress());
     p.saveConcepts("n.md", "h1", [c("A"), c("B")]);
-    review(p.data.concepts.find((x) => x.name === "A")!, 1);
+    review(
+      p.data.concepts.find((x) => x.name === "A")!,
+      1,
+    );
     p.saveConcepts("n.md", "h2", [c("A"), c("C")]);
     const cs = p.conceptsFor(new Set(["n.md"]));
     expect(cs.map((x) => x.name)).toEqual(["A", "C"]);
@@ -93,7 +105,9 @@ describe("progress + srs", () => {
   });
   it("rotates focused questions across reviews", () => {
     const p = new Progress(emptyProgress());
-    p.saveConcepts("n.md", "h", [c("KE grows with v squared", [" Why does doubling speed quadruple KE? ", "What if mass doubles?"])]);
+    p.saveConcepts("n.md", "h", [
+      c("KE grows with v squared", [" Why does doubling speed quadruple KE? ", "What if mass doubles?"]),
+    ]);
     const x = p.data.concepts[0];
     expect(conceptQuestion(x)).toBe("Why does doubling speed quadruple KE?");
     review(x, 1);
@@ -104,7 +118,18 @@ describe("progress + srs", () => {
   it("re-reads notes indexed with older extraction rules", () => {
     const data = emptyProgress();
     data.notes["old.md"] = { hash: "h", indexed_at: "", v: 1 };
-    data.concepts.push({ ...c("A"), id: 1, note_path: "old.md", ease: 2.5, interval_days: 0, reps: 0, lapses: 0, due: null, mastery: 0, last_reviewed: null } as never);
+    data.concepts.push({
+      ...c("A"),
+      id: 1,
+      note_path: "old.md",
+      ease: 2.5,
+      interval_days: 0,
+      reps: 0,
+      lapses: 0,
+      due: null,
+      mastery: 0,
+      last_reviewed: null,
+    } as never);
     delete (data.concepts[0] as { questions?: string[] }).questions; // files from before questions existed
     const p = new Progress(data);
     expect(p.data.concepts[0].questions).toEqual([]);
@@ -135,7 +160,9 @@ describe("activity, streaks and misconception context", () => {
 
   it("counts reviews per local day and the current streak", () => {
     const p = new Progress(emptyProgress());
-    p.data.attempts = [at(2026, 9, 5), at(2026, 9, 7), at(2026, 9, 8), at(2026, 9, 8, 22), at(2026, 9, 9, 1)].map((ts) => ({ concept_id: 1, kind: "quiz", score: 1, ts }));
+    p.data.attempts = [at(2026, 9, 5), at(2026, 9, 7), at(2026, 9, 8), at(2026, 9, 8, 22), at(2026, 9, 9, 1)].map(
+      (ts) => ({ concept_id: 1, kind: "quiz", score: 1, ts }),
+    );
     const now = new Date(2026, 9, 9, 15);
     expect(p.activity(7, now)).toEqual([0, 0, 1, 0, 1, 2, 1]);
     expect(p.streak(now)).toBe(3);
@@ -146,7 +173,11 @@ describe("activity, streaks and misconception context", () => {
 
   it("remembers the question behind a misconception and can reopen it", () => {
     const p = new Progress(emptyProgress());
-    const id = p.addMisconception(1, "Thinks heavier things fall faster", "Why do a hammer and a feather land together?");
+    const id = p.addMisconception(
+      1,
+      "Thinks heavier things fall faster",
+      "Why do a hammer and a feather land together?",
+    );
     expect(p.openMisconceptions()[0].source).toBe("Why do a hammer and a feather land together?");
     p.resolveMisconception(id);
     expect(p.openMisconceptions()).toHaveLength(0);
@@ -167,8 +198,12 @@ describe("claude result parsing", () => {
     expect(parseResult(out, "", 0)).toEqual({ data: { a: 1 }, models: ["claude-sonnet-5-5"] });
   });
   it("falls back to JSON in the text and reports errors", () => {
-    expect(parseResult(JSON.stringify({ subtype: "success", result: 'ok {"b":2} done' }), "", 0).data).toEqual({ b: 2 });
-    expect(() => parseResult(JSON.stringify({ subtype: "error", is_error: true, result: "nope" }), "", 1)).toThrow(/nope/);
+    expect(parseResult(JSON.stringify({ subtype: "success", result: 'ok {"b":2} done' }), "", 0).data).toEqual({
+      b: 2,
+    });
+    expect(() => parseResult(JSON.stringify({ subtype: "error", is_error: true, result: "nope" }), "", 1)).toThrow(
+      /nope/,
+    );
     expect(() => parseResult("garbage", "boom", 1)).toThrow(/boom/);
   });
 });
@@ -241,13 +276,18 @@ describe("settings: models in the picker", () => {
     const plugin = { settings, saveSettings: vi.fn(() => saved) };
     const tab = new TutorSettingTab({} as never, plugin as never) as unknown as {
       update: () => void;
-      providerDefinitions: (p: string) => { type?: string; onDelete?: (i: number) => void; onReorder?: (from: number, to: number) => void }[];
+      providerDefinitions: (
+        p: string,
+      ) => { type?: string; onDelete?: (i: number) => void; onReorder?: (from: number, to: number) => void }[];
     };
     // Like Obsidian, a redraw hands out fresh callbacks built from the current list.
     const draw = () => tab.providerDefinitions("claude").find((d) => d.type === "list")!;
     let drawn = draw();
     tab.update = () => (drawn = draw());
-    const list = { onDelete: (i: number) => drawn.onDelete!(i), onReorder: (from: number, to: number) => drawn.onReorder!(from, to) };
+    const list = {
+      onDelete: (i: number) => drawn.onDelete!(i),
+      onReorder: (from: number, to: number) => drawn.onReorder!(from, to),
+    };
     const ids = () => settings.models.map((m) => m.id);
     return { list, ids, release };
   }
@@ -283,7 +323,13 @@ describe("settings: models in the picker", () => {
 });
 
 describe("status bar clearance", () => {
-  const box = (left: number, top: number, right: number, bottom: number) => ({ left, top, right, bottom, height: bottom - top });
+  const box = (left: number, top: number, right: number, bottom: number) => ({
+    left,
+    top,
+    right,
+    bottom,
+    height: bottom - top,
+  });
   const sidebar = box(700, 40, 1000, 600);
 
   it("keeps clear of the floating status bar over the sidebar's bottom edge", () => {

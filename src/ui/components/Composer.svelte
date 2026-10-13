@@ -68,7 +68,9 @@
 </script>
 
 {#snippet box()}
-  {#if attachments.images.length}<div class="imgs"><Thumbs images={attachments.images} onremove={(i) => attachments.remove(i)} /></div>{/if}
+  {#if attachments.images.length}<div class="imgs">
+      <Thumbs images={attachments.images} onremove={(i: number) => attachments.remove(i)} />
+    </div>{/if}
   <textarea
     bind:this={input}
     bind:value
@@ -78,12 +80,16 @@
     aria-label={label}
     aria-describedby={describedby}
     {placeholder}
-    onkeydown={(e) => enterToSend(e, send)}
-  ></textarea>
+    onkeydown={(e) => enterToSend(e, send)}></textarea>
   <div class="ct-composer-actions">
     <AttachButton {attachments} />
     <span class="ct-composer-hint">{SEND_HINT}</span>
-    <SendButton label={sendLabel} type={form ? "submit" : "button"} disabled={blocked} onclick={form ? undefined : send} />
+    <SendButton
+      label={sendLabel}
+      type={form ? "submit" : "button"}
+      disabled={blocked}
+      onclick={form ? undefined : send}
+    />
   </div>
 {/snippet}
 
@@ -101,7 +107,9 @@
     <div class="ct-composer">{@render box()}</div>
   </form>
 {:else}
-  <div class="ct-composer" onpaste={onPaste} ondrop={onDrop} ondragover={(e) => e.preventDefault()} role="group">{@render box()}</div>
+  <div class="ct-composer" onpaste={onPaste} ondrop={onDrop} ondragover={(e) => e.preventDefault()} role="group">
+    {@render box()}
+  </div>
 {/if}
 
 <style>

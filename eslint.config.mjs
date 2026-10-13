@@ -1,16 +1,30 @@
 // The rules Obsidian's plugin review runs, so CI catches what a reviewer would flag.
 import { defineConfig } from "eslint/config";
 import obsidianmd from "eslint-plugin-obsidianmd";
+import svelte from "eslint-plugin-svelte";
+import tseslint from "typescript-eslint";
+
+// Obsidian's config only covers .ts and .js files; components get the same rules as .ts.
+const forTs = (files) => files.some((f) => (Array.isArray(f) ? forTs(f) : f.startsWith("**/*.{ts,")));
+const forSvelte = obsidianmd.configs.recommended
+  .filter((c) => c.files && forTs(c.files))
+  .map((c) => ({ ...c, files: ["**/*.svelte"] }));
+// Svelte's own rules come without a file pattern and break on package.json.
+const SVELTE = ["**/*.svelte", "**/*.svelte.ts"];
+const svelteRules = svelte.configs.recommended.map((c) => (c.files || !c.rules ? c : { ...c, files: SVELTE }));
 
 export default defineConfig([
-  { ignores: ["main.js", "node_modules/", "test-vault/", "tests/", "scripts/", "**/*.svelte"] },
+  { ignores: ["main.js", "node_modules/", "test-vault/", "tests/", "scripts/"] },
   ...obsidianmd.configs.recommended,
+  ...forSvelte,
+  ...svelteRules,
   {
     languageOptions: {
       parserOptions: {
         projectService: {
           allowDefaultProject: ["eslint.config.mjs", "esbuild.config.mjs", "vitest.config.ts"],
         },
+        extraFileExtensions: [".svelte"],
       },
     },
     rules: {
@@ -24,6 +38,26 @@ export default defineConfig([
         },
       ],
     },
+  },
+  {
+    files: SVELTE,
+    languageOptions: {
+      parserOptions: { parser: tseslint.parser },
+    },
+    rules: {
+      // Keys only matter for lists whose items move; a wrong one is worse than none.
+      "svelte/require-each-key": "off",
+      // Plain Maps and Sets here are built inside $derived or are bookkeeping no template reads.
+      "svelte/prefer-svelte-reactivity": "off",
+      // Disagrees with the compiler: it calls svelte-ignore comments unused that svelte-check needs.
+      "svelte/no-unused-svelte-ignore": "off",
+    },
+  },
+  {
+    // Its input-method check keeps the deprecated keyCode 229 fallback, which MDN still recommends;
+    // Obsidian's rules don't allow disabling this one inline.
+    files: ["src/ui/components/ModelPicker.svelte"],
+    rules: { "@typescript-eslint/no-deprecated": "off" },
   },
   {
     files: ["**/*.svelte.ts"],

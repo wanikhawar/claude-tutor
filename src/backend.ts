@@ -27,7 +27,9 @@ import type { Library } from "./library";
 import { modelName, type TutorSettings } from "./settings";
 
 const STOPWORDS = new Set(
-  "the and for with how why what when does work works about into from that this are was were you your teach explain learn understand want know".split(" "),
+  "the and for with how why what when does work works about into from that this are was were you your teach explain learn understand want know".split(
+    " ",
+  ),
 );
 
 /** Max characters of note text sent with a single request. */
@@ -130,7 +132,11 @@ export class Backend {
     const s = this.settings();
     // Tied to the backend's lifetime: a plugin reload mid-discovery mustn't save over the new instance's settings.
     const signal = this.requests.signal;
-    const { version, models } = await listModels(provider, { path: provider === "codex" ? s.codexPath : s.claudePath, cwd: this.cliCwd, signal });
+    const { version, models } = await listModels(provider, {
+      path: provider === "codex" ? s.codexPath : s.claudePath,
+      cwd: this.cliCwd,
+      signal,
+    });
     if (signal.aborted) return;
     s.discovered = [...s.discovered.filter((m) => m.provider !== provider), ...models];
     s.versions[provider] = version;
@@ -184,7 +190,11 @@ export class Backend {
    */
   private shareable(key: string): boolean {
     const path = key.replace(/#p\d+-\d+$/, "");
-    return this.progress.noteHash(key) !== undefined && this.library.inScope(path) && this.app.vault.getAbstractFileByPath(path) instanceof TFile;
+    return (
+      this.progress.noteHash(key) !== undefined &&
+      this.library.inScope(path) &&
+      this.app.vault.getAbstractFileByPath(path) instanceof TFile
+    );
   }
 
   /**
@@ -233,7 +243,9 @@ export class Backend {
       concepts,
       mistakes: this.progress.openMisconceptions().flatMap((m) => {
         const concept_name = m.concept_id === null ? undefined : names.get(m.concept_id);
-        return concept_name === undefined ? [] : [{ id: m.id, concept_id: m.concept_id, concept_name, text: m.text, ts: m.ts, source: m.source ?? "" }];
+        return concept_name === undefined
+          ? []
+          : [{ id: m.id, concept_id: m.concept_id, concept_name, text: m.text, ts: m.ts, source: m.source ?? "" }];
       }),
       activity: this.progress.activity(7),
       streak: this.progress.streak(),
@@ -319,7 +331,10 @@ export class Backend {
   folderSummary(): { path: string; count: number }[] {
     const files = this.app.vault.getFiles().filter((f) => {
       const ext = f.extension.toLowerCase();
-      return (ext === "md" || (ext === "pdf" && this.settings().includePdfs)) && !f.path.startsWith(this.app.vault.configDir + "/");
+      return (
+        (ext === "md" || (ext === "pdf" && this.settings().includePdfs)) &&
+        !f.path.startsWith(this.app.vault.configDir + "/")
+      );
     });
     const counts = new Map<string, number>([["/", files.length]]);
     for (const f of files) {
@@ -364,7 +379,8 @@ export class Backend {
     this.progress.logAttempt(a.conceptId, "feynman", score);
     // You still get the feedback; there's just no concept left to schedule or note mistakes on.
     if (!this.current(concept)) return ev;
-    for (const g of ev.gaps.filter((g) => g.kind === "wrong")) this.progress.addMisconception(a.conceptId, g.issue, a.question);
+    for (const g of ev.gaps.filter((g) => g.kind === "wrong"))
+      this.progress.addMisconception(a.conceptId, g.issue, a.question);
     // Spaced repetition tracks first-try recall; peeking costs a little.
     if (a.attempt === 0) this.storeReview(concept, a.peeked ? score * 0.85 : score);
     return ev;
@@ -407,7 +423,10 @@ export class Backend {
       const concept = pool.find((c) => c.id === q.concept_id);
       if (!concept) throw new Error("Claude returned a question for a concept outside this quiz.");
       q.concept = concept.name;
-      if (q.misconception_id !== null && !misc.some((m) => m.id === q.misconception_id && m.concept_id === concept.id)) {
+      if (
+        q.misconception_id !== null &&
+        !misc.some((m) => m.id === q.misconception_id && m.concept_id === concept.id)
+      ) {
         throw new Error("Claude returned a question for an unrelated misconception.");
       }
     }
@@ -423,7 +442,9 @@ export class Backend {
     signal?: AbortSignal,
   ): Promise<GradeOutcome> {
     const concept = this.concept(question.concept_id);
-    const target = this.progress.openMisconceptions().find((m) => m.id === question.misconception_id && m.concept_id === concept.id);
+    const target = this.progress
+      .openMisconceptions()
+      .find((m) => m.id === question.misconception_id && m.concept_id === concept.id);
     let grade: Grade;
     if (choice !== null && isMcq(question) && choice === question.correct_option) {
       // Correct multiple choice needs no round-trip to Claude.
@@ -445,13 +466,17 @@ export class Backend {
     } else {
       const userAnswer =
         choice !== null && isMcq(question) ? `Chose option ${choice + 1}: ${question.options[choice] ?? ""}` : answer;
-      const context = `Concept: ${concept.name}\nSummary: ${concept.summary}\nKey excerpt: ${concept.excerpt}\n\nNote:\n${this.noteText(concept.note_path, 10_000)[1]}` +
+      const context =
+        `Concept: ${concept.name}\nSummary: ${concept.summary}\nKey excerpt: ${concept.excerpt}\n\nNote:\n${this.noteText(concept.note_path, 10_000)[1]}` +
         (target ? `\n\nMisconception being practised: ${target.text}` : "");
       const label = { guess: "just guessing", unsure: "somewhat unsure", sure: "confident" }[confidence];
       grade = await tutor.grade(this.requestOptions(signal), question, userAnswer, label, context, images, target);
     }
 
-    if (grade.misconception_id !== null && (!Number.isInteger(grade.misconception_id) || grade.misconception_id !== target?.id)) {
+    if (
+      grade.misconception_id !== null &&
+      (!Number.isInteger(grade.misconception_id) || grade.misconception_id !== target?.id)
+    ) {
       throw new Error("Claude returned a diagnosis for an unrelated misconception.");
     }
     let misconception_id: number | null = null;
@@ -464,7 +489,8 @@ export class Backend {
     if (target && grade.correct) this.progress.resolveMisconception(target.id);
     if (!grade.correct) {
       if (grade.misconception_id !== null) misconception_id = grade.misconception_id;
-      else if (grade.misconception.trim()) misconception_id = this.progress.addMisconception(concept.id, grade.misconception, question.question);
+      else if (grade.misconception.trim())
+        misconception_id = this.progress.addMisconception(concept.id, grade.misconception, question.question);
     }
     return { grade, misconception_id };
   }
@@ -481,7 +507,14 @@ export class Backend {
   }): Promise<CheckResult> {
     this.concept(a.conceptId);
     const original = this.progress.openMisconceptions().find((m) => m.id === a.misconceptionId);
-    const r = await tutor.check(this.requestOptions(a.signal), a.question, a.key, original?.text ?? a.misconception, a.answer, a.images);
+    const r = await tutor.check(
+      this.requestOptions(a.signal),
+      a.question,
+      a.key,
+      original?.text ?? a.misconception,
+      a.answer,
+      a.images,
+    );
     if (r.understood && a.misconceptionId !== null) this.progress.resolveMisconception(a.misconceptionId);
     return r;
   }
@@ -573,7 +606,9 @@ export class Backend {
     // Earlier replies can quote a lesson's notes, and the history goes with every turn: a
     // lesson whose note has left your library can't go on without sharing it again.
     if (history.length && sources.some((k) => !this.shareable(k))) {
-      throw new Error("A note this lesson was based on is no longer in your library, so Clawd can't continue it. Start a new lesson.");
+      throw new Error(
+        "A note this lesson was based on is no longer in your library, so Clawd can't continue it. Start a new lesson.",
+      );
     }
     const context = sources
       .filter((k) => this.shareable(k))
@@ -590,7 +625,12 @@ export class Backend {
   async saveLesson(topic: string, summary: string, sources: string[]): Promise<string> {
     const folder = normalizePath(this.settings().lessonFolder || "Claude Tutor/Lessons");
     if (!this.app.vault.getAbstractFileByPath(folder)) await this.app.vault.createFolder(folder).catch(() => {});
-    const base = topic.replace(/[\\/:*?"<>|#^[\]]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "Lesson";
+    const base =
+      topic
+        .replace(/[\\/:*?"<>|#^[\]]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 80) || "Lesson";
     let path = normalizePath(`${folder}/${base}.md`);
     for (let i = 2; this.app.vault.getAbstractFileByPath(path); i++) path = normalizePath(`${folder}/${base} ${i}.md`);
     const links = [...new Set(sources.map((k) => this.library.notes.get(k)?.path).filter((p): p is string => !!p))]

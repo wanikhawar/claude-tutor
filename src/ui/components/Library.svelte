@@ -42,7 +42,12 @@
   }
   const counts = $derived(
     Object.fromEntries(
-      FILTERS.map(([f]) => [f, f === "all" ? store.concepts.length : store.concepts.filter((c) => (f === "due" ? isDue(c) : level(c) === f)).length]),
+      FILTERS.map(([f]) => [
+        f,
+        f === "all"
+          ? store.concepts.length
+          : store.concepts.filter((c) => (f === "due" ? isDue(c) : level(c) === f)).length,
+      ]),
     ) as Record<Filter, number>,
   );
 
@@ -93,7 +98,15 @@
       }
       let row = byGroup.get(grp);
       if (!row) {
-        row = { kind: "pdf", id: grp, title: grp.split("/").pop()!.replace(/\.pdf$/i, ""), parts: [] };
+        row = {
+          kind: "pdf",
+          id: grp,
+          title: grp
+            .split("/")
+            .pop()!
+            .replace(/\.pdf$/i, ""),
+          parts: [],
+        };
         byGroup.set(grp, row);
         out.push(row);
       }
@@ -118,9 +131,26 @@
 
   function noteMenu(g: Item, e: MouseEvent) {
     const menu = new Menu();
-    menu.addItem((i) => i.setTitle("Open note").setIcon("file-text").onClick(() => store.openNote(g.note.key)));
-    if (g.concepts.length) menu.addItem((i) => i.setTitle("Quiz me on this").setIcon("zap").onClick(() => store.noteQuiz(g.note.key)));
-    if (g.note.stale && !store.indexing) menu.addItem((i) => i.setTitle("Have Clawd read it now").setIcon("sparkles").onClick(() => void store.indexOne(g.note.key)));
+    menu.addItem((i) =>
+      i
+        .setTitle("Open note")
+        .setIcon("file-text")
+        .onClick(() => store.openNote(g.note.key)),
+    );
+    if (g.concepts.length)
+      menu.addItem((i) =>
+        i
+          .setTitle("Quiz me on this")
+          .setIcon("zap")
+          .onClick(() => store.noteQuiz(g.note.key)),
+      );
+    if (g.note.stale && !store.indexing)
+      menu.addItem((i) =>
+        i
+          .setTitle("Have Clawd read it now")
+          .setIcon("sparkles")
+          .onClick(() => void store.indexOne(g.note.key)),
+      );
     if (e.type === "contextmenu" || e.detail > 0) menu.showAtMouseEvent(e);
     else {
       // Opened from the keyboard: anchor to the button.
@@ -133,7 +163,13 @@
 
 {#snippet noteItem(g: Item, label: string)}
   {@const expanded = open[g.note.key] ?? (narrowed || activeNote === g.note.key)}
-  <div class="note" class:current={activeNote === g.note.key} oncontextmenu={(e) => noteMenu(g, e)} role="group" aria-label={label}>
+  <div
+    class="note"
+    class:current={activeNote === g.note.key}
+    oncontextmenu={(e) => noteMenu(g, e)}
+    role="group"
+    aria-label={label}
+  >
     <button class="note-head" aria-expanded={expanded} onclick={() => (open[g.note.key] = !expanded)}>
       <span class="chev" class:expanded><Icon name="right" size={14} /></span>
       <span class="title">{label}</span>
@@ -146,10 +182,15 @@
     </button>
     <div class="note-actions">
       {#if g.concepts.length}
-        <button class="quiz" title="Quiz me on this" onclick={() => store.noteQuiz(g.note.key)}><Icon name="zap" size={14} /><span>Quiz</span></button>
+        <button class="quiz" title="Quiz me on this" onclick={() => store.noteQuiz(g.note.key)}
+          ><Icon name="zap" size={14} /><span>Quiz</span></button
+        >
       {/if}
-      <button title="More actions" aria-label="More actions for {label}" aria-haspopup="menu" onclick={(e) => noteMenu(g, e)}
-        ><Icon name="more" size={16} /></button
+      <button
+        title="More actions"
+        aria-label="More actions for {label}"
+        aria-haspopup="menu"
+        onclick={(e) => noteMenu(g, e)}><Icon name="more" size={16} /></button
       >
     </div>
   </div>
@@ -177,7 +218,8 @@
         <li class="empty">
           {#if g.note.stale}
             {store.indexing?.current === g.note.title ? "Clawd is reading this…" : "Not read yet."}
-            {#if !store.indexing}<button class="link" onclick={() => store.indexOne(g.note.key)}>Read it now</button>{/if}
+            {#if !store.indexing}<button class="link" onclick={() => store.indexOne(g.note.key)}>Read it now</button
+              >{/if}
           {:else}No concepts found.{/if}
         </li>
       {/each}
@@ -196,10 +238,19 @@
         <dd style:color={masteryColor(c)}>{c.last_reviewed ? `${Math.round(c.mastery * 100)}%` : "Not studied yet"}</dd>
       </div>
       {#if c.last_reviewed}
-        <div><dt>Last studied</dt><dd>{timeAgo(c.last_reviewed)}</dd></div>
-        <div><dt>Next review</dt><dd>{relativeDue(c)}</dd></div>
+        <div>
+          <dt>Last studied</dt>
+          <dd>{timeAgo(c.last_reviewed)}</dd>
+        </div>
+        <div>
+          <dt>Next review</dt>
+          <dd>{relativeDue(c)}</dd>
+        </div>
       {/if}
-      {#if c.lapses}<div><dt>Forgotten</dt><dd>{c.lapses}×</dd></div>{/if}
+      {#if c.lapses}<div>
+          <dt>Forgotten</dt>
+          <dd>{c.lapses}×</dd>
+        </div>{/if}
     </dl>
     {#if c.prerequisites.length}
       <p class="d-pre faint small">Builds on: {c.prerequisites.join(", ")}</p>
@@ -207,13 +258,23 @@
     {#if mistakes.length}
       <div class="d-mistakes">
         <p class="faint small">Open mistakes</p>
-        <ul>{#each mistakes as m (m.id)}<li><Icon name="alert" size={13} /><span><Markdown md={m.text} inline /></span></li>{/each}</ul>
+        <ul>
+          {#each mistakes as m (m.id)}<li>
+              <Icon name="alert" size={13} /><span><Markdown md={m.text} inline /></span>
+            </li>{/each}
+        </ul>
       </div>
     {/if}
     <div class="d-actions">
-      <button class="btn sm primary" onclick={() => store.startExplain(c.id)}><Icon name="brain" size={14} />Explain it</button>
-      <button class="btn sm" onclick={() => store.startQuiz(`Quiz: ${c.name}`, [c.id], 3)}><Icon name="zap" size={14} />Quiz me</button>
-      <button class="btn sm ghost" onclick={() => store.openNote(c.note_path)}><Icon name="book" size={14} />Open note</button>
+      <button class="btn sm primary" onclick={() => store.startExplain(c.id)}
+        ><Icon name="brain" size={14} />Explain it</button
+      >
+      <button class="btn sm" onclick={() => store.startQuiz(`Quiz: ${c.name}`, [c.id], 3)}
+        ><Icon name="zap" size={14} />Quiz me</button
+      >
+      <button class="btn sm ghost" onclick={() => store.openNote(c.note_path)}
+        ><Icon name="book" size={14} />Open note</button
+      >
     </div>
   </div>
 {/snippet}
@@ -221,27 +282,40 @@
 <aside class="library">
   <header class="head">
     <h2>Library</h2>
-    <p class="muted small">{store.notes.length} notes · {store.concepts.length} concepts · click a concept for details</p>
+    <p class="muted small">
+      {store.notes.length} notes · {store.concepts.length} concepts · click a concept for details
+    </p>
     <div class="sources">
       {#each store.snap?.sources.folders ?? [] as f (f)}
         <span class="src" title="Folder: {f}">
           <Icon name="folder" size={13} />{f === "/" ? "Whole vault" : f}
-          <button aria-label="Remove {f}" title="Remove from library" onclick={() => store.removeSource(f)}><Icon name="x" size={12} /></button>
+          <button aria-label="Remove {f}" title="Remove from library" onclick={() => store.removeSource(f)}
+            ><Icon name="x" size={12} /></button
+          >
         </span>
       {/each}
       {#each store.snap?.sources.files ?? [] as f (f)}
         <span class="src" title="Note: {f}">
           <Icon name="file" size={13} />{f.split("/").pop()}
-          <button aria-label="Remove {f}" title="Remove from library" onclick={() => store.removeSource(f)}><Icon name="x" size={12} /></button>
+          <button aria-label="Remove {f}" title="Remove from library" onclick={() => store.removeSource(f)}
+            ><Icon name="x" size={12} /></button
+          >
         </span>
       {/each}
       <button class="btn sm" onclick={() => store.pickNote()}><Icon name="file" size={14} />Add note or PDF</button>
-      <button class="btn sm ghost" onclick={() => store.pickFolder()}><Icon name="folder" size={14} />Add folder</button>
+      <button class="btn sm ghost" onclick={() => store.pickFolder()}><Icon name="folder" size={14} />Add folder</button
+      >
     </div>
   </header>
   <div class="search">
     <Icon name="search" size={16} />
-    <input type="search" placeholder="Search notes & concepts" aria-label="Search notes and concepts" bind:value={query} bind:this={searchEl} />
+    <input
+      type="search"
+      placeholder="Search notes & concepts"
+      aria-label="Search notes and concepts"
+      bind:value={query}
+      bind:this={searchEl}
+    />
     <select class="sort" aria-label="Sort notes" bind:value={sort}>
       <option value="notes">Note order</option>
       <option value="due">Most due first</option>
@@ -250,8 +324,12 @@
   </div>
   <div class="filters" role="radiogroup" aria-label="Show concepts">
     {#each FILTERS as [id, label] (id)}
-      <button role="radio" aria-checked={filter === id} class:sel={filter === id} disabled={id !== "all" && !counts[id]} onclick={() => (filter = id)}
-        >{label}<span class="fc">{counts[id]}</span></button
+      <button
+        role="radio"
+        aria-checked={filter === id}
+        class:sel={filter === id}
+        disabled={id !== "all" && !counts[id]}
+        onclick={() => (filter = id)}>{label}<span class="fc">{counts[id]}</span></button
       >
     {/each}
   </div>
@@ -285,7 +363,9 @@
 
   {#if skipped.length}
     <details class="skipped">
-      <summary><Icon name="alert" size={14} />{skipped.length} file{skipped.length > 1 ? "s" : ""} couldn't be read</summary>
+      <summary
+        ><Icon name="alert" size={14} />{skipped.length} file{skipped.length > 1 ? "s" : ""} couldn't be read</summary
+      >
       <ul>
         {#each skipped as f}<li><b>{f.rel}</b><span>{f.reason}</span></li>{/each}
       </ul>

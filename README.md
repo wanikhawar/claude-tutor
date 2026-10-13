@@ -71,13 +71,13 @@ For development, symlink the folder instead and run `npm run dev` to rebuild on 
 
 ## Commands
 
-| Command | |
-|---|---|
-| Open | Opens the tutor (in the right sidebar, where it resizes with the sidebar; or in a tab if you turn that off in settings) |
-| Start study session | Explain due concepts, then a short quiz |
-| Quiz me on the current note | Reads the note if needed, then quizzes you on it |
-| Explain a concept from the current note | Starts the Feynman loop on its most due concept |
-| Re-scan study folders | Reloads the library |
+| Command                                 |                                                                                                                         |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Open                                    | Opens the tutor (in the right sidebar, where it resizes with the sidebar; or in a tab if you turn that off in settings) |
+| Start study session                     | Explain due concepts, then a short quiz                                                                                 |
+| Quiz me on the current note             | Reads the note if needed, then quizzes you on it                                                                        |
+| Explain a concept from the current note | Starts the Feynman loop on its most due concept                                                                         |
+| Re-scan study folders                   | Reloads the library                                                                                                     |
 
 ## Data
 
@@ -110,14 +110,15 @@ npm install
 npm run build                                   # type-checks, then writes main.js
 npm test                                        # core unit tests (notes, PDF reflow/split, SRS, progress)
 npm run lint                                    # Obsidian's review rules and the vault-listing check
+npm run format                                  # format with Prettier
 CLAUDE_LIVE=1 npx vitest run tests/live.test.ts # live test against Claude (Haiku): checks LaTeX output
 npm run dev                                     # rebuild main.js on change
 ```
 
-| Path | Purpose |
-|---|---|
-| `src/main.ts` | Plugin: view, ribbon, commands, file menu, vault sync, progress file |
-| `src/backend.ts` | What the UI calls: indexing, explain/quiz/grade/check, Ask Clawd |
-| `src/library.ts` | Study scope, Markdown/PDF loading, PDF cache |
-| `src/core/` | Pure TypeScript: Claude Code and Codex bridges, prompts, SM-2, notes, PDF reflow/split, progress store |
-| `src/ui/` | Svelte 5 UI (Markdown and MathJax rendered by Obsidian) |
+| Path             | Purpose                                                                                                |
+| ---------------- | ------------------------------------------------------------------------------------------------------ |
+| `src/main.ts`    | Plugin: view, ribbon, commands, file menu, vault sync, progress file                                   |
+| `src/backend.ts` | What the UI calls: indexing, explain/quiz/grade/check, Ask Clawd                                       |
+| `src/library.ts` | Study scope, Markdown/PDF loading, PDF cache                                                           |
+| `src/core/`      | Pure TypeScript: Claude Code and Codex bridges, prompts, SM-2, notes, PDF reflow/split, progress store |
+| `src/ui/`        | Svelte 5 UI (Markdown and MathJax rendered by Obsidian)                                                |

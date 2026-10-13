@@ -1,4 +1,18 @@
-import { FileSystemAdapter, Menu, Notice, Plugin, TAbstractFile, TFile, TFolder, addIcon, debounce, loadMathJax, normalizePath, type Debouncer, type WorkspaceLeaf } from "obsidian";
+import {
+  FileSystemAdapter,
+  Menu,
+  Notice,
+  Plugin,
+  TAbstractFile,
+  TFile,
+  TFolder,
+  addIcon,
+  debounce,
+  loadMathJax,
+  normalizePath,
+  type Debouncer,
+  type WorkspaceLeaf,
+} from "obsidian";
 import { rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { Backend } from "./backend";
@@ -46,9 +60,13 @@ export default class ClaudeTutorPlugin extends Plugin {
     if (this.unloaded) return;
     const dir = this.manifest.dir ?? normalizePath(`${this.app.vault.configDir}/plugins/${this.manifest.id}`);
     this.progressFile = normalizePath(`${dir}/progress.json`);
-    this.scheduleSave = debounce(() => {
-      void this.saveProgress().catch((e) => new Notice(`Claude Tutor: couldn't save progress (${e}).`));
-    }, 1500, true);
+    this.scheduleSave = debounce(
+      () => {
+        void this.saveProgress().catch((e) => new Notice(`Claude Tutor: couldn't save progress (${e}).`));
+      },
+      1500,
+      true,
+    );
     await pendingSaves().get(this.progressFile);
     // Disabled while waiting for the previous instance's save: start nothing.
     if (this.unloaded) return;
@@ -69,7 +87,11 @@ export default class ClaudeTutorPlugin extends Plugin {
       () => this.openSettings(),
       () => this.saveSettings(),
     );
-    store.init(this.backend, () => this.settings, () => this.saveSettings());
+    store.init(
+      this.backend,
+      () => this.settings,
+      () => this.saveSettings(),
+    );
 
     addIcon("clawd", CLAWD_ICON);
     // Formulae in Claude's answers are rendered by Obsidian's MathJax.
@@ -159,11 +181,16 @@ export default class ClaudeTutorPlugin extends Plugin {
       for (let i = 2; await adapter.exists(backup).catch(() => false); i++) backup = `${this.progressFile}.bak${i}`;
       try {
         await adapter.copy(this.progressFile, backup);
-        new Notice(`Claude Tutor: couldn't read progress.json (${why}). Starting fresh; the old file was kept as ${backup.split("/").pop()}.`);
+        new Notice(
+          `Claude Tutor: couldn't read progress.json (${why}). Starting fresh; the old file was kept as ${backup.split("/").pop()}.`,
+        );
       } catch {
         // Without a copy, saving would destroy the only one.
         this.keepProgressFile = true;
-        new Notice(`Claude Tutor: couldn't read progress.json (${why}), or back it up. Progress won't be saved until it's fixed or removed.`, 0);
+        new Notice(
+          `Claude Tutor: couldn't read progress.json (${why}), or back it up. Progress won't be saved until it's fixed or removed.`,
+          0,
+        );
       }
     }
     return emptyProgress();
@@ -315,13 +342,17 @@ export default class ClaudeTutorPlugin extends Plugin {
       window.clearTimeout(this.pendingReloads.get(path));
       this.pendingReloads.set(
         path,
-        window.setTimeout(() => void (async () => {
-          this.pendingReloads.delete(path);
-          if (this.unloaded) return;
-          await lib.loadFile(file);
-          if (this.unloaded) return;
-          this.backend.emit();
-        })(), 2000),
+        window.setTimeout(
+          () =>
+            void (async () => {
+              this.pendingReloads.delete(path);
+              if (this.unloaded) return;
+              await lib.loadFile(file);
+              if (this.unloaded) return;
+              this.backend.emit();
+            })(),
+          2000,
+        ),
       );
     };
     const changed = (f: TAbstractFile) => {

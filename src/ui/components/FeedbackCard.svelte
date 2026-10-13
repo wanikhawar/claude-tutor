@@ -13,8 +13,14 @@
     interactive,
     conceptId,
     onprereq,
-  }: { ev: FeynmanEval; stuck?: boolean; latest: boolean; interactive: boolean; conceptId: number; onprereq: (id: number) => void } =
-    $props();
+  }: {
+    ev: FeynmanEval;
+    stuck?: boolean;
+    latest: boolean;
+    interactive: boolean;
+    conceptId: number;
+    onprereq: (id: number) => void;
+  } = $props();
 
   const verdict = $derived(
     ev.passed
@@ -34,7 +40,13 @@
 <div class="fb">
   <div class="head">
     {#if !stuck}
-      <Ring value={ev.score / 100} size={52} width={5} color={scoreColor(ev.score)} label={String(Math.round(ev.score))} />
+      <Ring
+        value={ev.score / 100}
+        size={52}
+        width={5}
+        color={scoreColor(ev.score)}
+        label={String(Math.round(ev.score))}
+      />
     {/if}
     <div>
       <h3>{verdict}</h3>
@@ -76,7 +88,10 @@
   {/if}
 
   {#if ev.analogy.trim()}
-    <div class="ct-callout bulb"><Icon name="bulb" /><p><Markdown md={ev.analogy} inline /></p></div>
+    <div class="ct-callout bulb">
+      <Icon name="bulb" />
+      <p><Markdown md={ev.analogy} inline /></p>
+    </div>
   {/if}
 
   {#if ev.prerequisite_gap.trim()}
@@ -85,7 +100,9 @@
       <div class="grow">
         <p>Missing foundation: <b><Markdown md={ev.prerequisite_gap} inline /></b></p>
         {#if prereq && prereq.id !== conceptId && latest}
-          <button class="btn sm" disabled={!interactive} onclick={() => onprereq(prereq.id)}>Learn “<Markdown md={prereq.name} inline />” first</button>
+          <button class="btn sm" disabled={!interactive} onclick={() => onprereq(prereq.id)}
+            >Learn “<Markdown md={prereq.name} inline />” first</button
+          >
         {/if}
       </div>
     </div>
@@ -94,7 +111,9 @@
   {#if ev.note_issues.length}
     <details class="fold">
       <summary><Icon name="pencil" size={15} />Your notes could be clearer</summary>
-      <ul class="plain">{#each ev.note_issues as n}<li><Markdown md={n} inline /></li>{/each}</ul>
+      <ul class="plain">
+        {#each ev.note_issues as n}<li><Markdown md={n} inline /></li>{/each}
+      </ul>
     </details>
   {/if}
 
