@@ -7,7 +7,9 @@
     "dev": "node esbuild.config.mjs --watch",
     "build": "svelte-check --tsconfig ./tsconfig.json && node esbuild.config.mjs",
     "test": "vitest run",
-    "lint": "eslint --max-warnings 0 . && node scripts/check-vault-listing.mjs"
+    "lint": "eslint --max-warnings 0 . && node scripts/check-vault-listing.mjs",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "devDependencies": {
     "@types/node": "26.6.4",

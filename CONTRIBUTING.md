@@ -43,9 +43,10 @@ Before opening a pull request, make sure these pass. CI runs them on every pull 
 Linux, macOS and Windows.
 
 ```sh
-npm test        # unit tests
-npm run lint    # Obsidian's review rules (eslint-plugin-obsidianmd) and the vault-listing check
-npm run build   # type-checks with svelte-check, then builds main.js
+npm test              # unit tests
+npm run lint          # Obsidian's review rules (eslint-plugin-obsidianmd) and the vault-listing check
+npm run format:check  # formatting (Prettier); npm run format fixes it
+npm run build         # type-checks with svelte-check, then builds main.js
 ```
 
 The vault-listing check (`scripts/check-vault-listing.mjs`) fails if a whole-vault listing such as `vault.getFiles()` is
@@ -71,7 +72,8 @@ The [Development](README.md#development) section of the README maps out the sour
   is reviewed against them: use `createEl` / `createDiv` rather than `document.createElement`, don't set
   `innerHTML`, avoid `any`, and use Obsidian's APIs for vault files.
 - **`src/core/` stays plain TypeScript** with no `obsidian` import, so it can be tested without Obsidian.
-- **Match the surrounding code**: its naming, its comment style (short comments that say why) and its formatting.
+- **Match the surrounding code**: its naming and its comment style (short comments that say why). Prettier handles
+  the formatting.
 - **No new dependencies** without discussing them first; everything gets bundled into `main.js`.
 - If you change what the plugin sends, runs or stores, update the **Disclosures** and **Data** sections of the README.
 

@@ -15,6 +15,7 @@
   const mastered = $derived(store.concepts.filter((c) => c.mastery >= 0.8).length);
   const ready = $derived(store.concepts.length > 0);
   const caughtUp = $derived(ready && !due.length);
+  const heading = $derived(due.length ? "Today's session" : ready ? "All caught up" : "Getting ready…");
   const activity = $derived(store.snap?.activity ?? []);
   const peak = $derived(Math.max(1, ...activity));
   const streak = $derived(store.snap?.streak ?? 0);
@@ -129,7 +130,7 @@
     <div class="ct-card primary-card">
       <span class="ti" style="color: var(--good)"><Icon name="sun" /></span>
       <!-- eslint-disable-next-line svelte/no-useless-mustaches -- a plain space at the start of a block is trimmed -->
-      <b>{due.length ? "Today's session" : ready ? "All caught up" : "Getting ready…"}{#if ready && !(caughtUp && !plan.length)}{" "}<kbd>Enter</kbd>{/if}</b>
+      <b>{heading} {#if ready && !(caughtUp && !plan.length)}<kbd>Enter</kbd>{/if}</b>
       <small>
         {#if !ready}
           Pick at least one note for Clawd to read first.

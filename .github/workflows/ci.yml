@@ -20,6 +20,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint
+      - run: npm run format:check
 
   test:
     # The plugin spawns the Claude and Codex CLIs, so path and process handling is tested on each desktop OS.
