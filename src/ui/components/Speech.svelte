@@ -6,11 +6,11 @@
   $effect(() => {
     const full = text;
     shown = 0;
-    const t = setInterval(() => {
+    const t = window.setInterval(() => {
       shown += 2;
-      if (shown >= full.length) clearInterval(t);
+      if (shown >= full.length) window.clearInterval(t);
     }, 18);
-    return () => clearInterval(t);
+    return () => window.clearInterval(t);
   });
 </script>
 

@@ -20,7 +20,7 @@
   );
 
   function go(name: View["name"]) {
-    store.view = { name } as View;
+    store.view = { name };
   }
 </script>
 

@@ -40,7 +40,7 @@ export class TutorView extends ItemView {
   async onOpen() {
     this.contentEl.empty();
     this.contentEl.addClass("ct-view");
-    this.app_ = mount(App, { target: this.contentEl, props: { component: this } });
+    this.app_ = mount(App, { target: this.contentEl });
     this.clearStatusBar();
   }
 

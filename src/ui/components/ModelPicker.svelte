@@ -84,11 +84,8 @@
     });
   }
 
-  /**
-   * An input method (Chinese, Japanese, …) is composing text: its Enter confirms the text
-   * and its Esc cancels it. Some browsers flag only the keyCode on the confirming keydown.
-   */
-  const composing = (e: KeyboardEvent) => e.isComposing || e.keyCode === 229;
+  /** An input method (Chinese, Japanese, …) is composing text: its Enter confirms the text and its Esc cancels it. */
+  const composing = (e: KeyboardEvent) => e.isComposing;
 
   /** Keep the highlighted option in view inside the scrolling popover. */
   function reveal() {

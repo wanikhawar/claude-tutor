@@ -128,6 +128,7 @@
   <section class="quick">
     <div class="ct-card primary-card">
       <span class="ti" style="color: var(--good)"><Icon name="sun" /></span>
+      <!-- eslint-disable-next-line svelte/no-useless-mustaches -- a plain space at the start of a block is trimmed -->
       <b>{due.length ? "Today's session" : ready ? "All caught up" : "Getting ready…"}{#if ready && !(caughtUp && !plan.length)}{" "}<kbd>Enter</kbd>{/if}</b>
       <small>
         {#if !ready}

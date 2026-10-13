@@ -171,11 +171,11 @@
     phase = { p: "busy" };
     thinking = true;
     slow = false;
-    const slowTimer = setTimeout(() => (slow = true), 8_000);
+    const slowTimer = window.setTimeout(() => (slow = true), 8_000);
     store.say("thinking", line);
     void scrollDown();
     if (hadFocus) void tick().then(() => { if (rootEl && !rootEl.contains(document.activeElement)) rootEl.focus({ preventScroll: true }); });
-    const retry = () => run(fn, line, undo);
+    const retry = () => void run(fn, line, undo);
     try {
       await fn(ctl.signal);
     } catch (e) {
@@ -197,7 +197,7 @@
         store.say("confused", "Oops, I couldn't reach my brain.");
       }
     } finally {
-      clearTimeout(slowTimer);
+      window.clearTimeout(slowTimer);
       if (request === ctl) request = null;
       thinking = false;
       slow = false;
@@ -253,7 +253,7 @@
       phase = { p: "busy" };
       void run(async (signal) => {
         const set = await api.makeQuiz(step.conceptIds, step.count, signal);
-        if (!set.questions.length) throw "Claude didn't return any questions.";
+        if (!set.questions.length) throw new Error("Claude didn't return any questions.");
         push({ kind: "say", md: set.mascot_line || "Pop quiz! No peeking at your notes.", mood: asMood(set.mood, "curious") });
         store.say(asMood(set.mood, "curious"), set.mascot_line);
         phase = { p: "quiz", questions: set.questions, idx: 0, stage: "answer" };

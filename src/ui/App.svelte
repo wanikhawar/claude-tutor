@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import type { ItemView } from "obsidian";
   import { store } from "./lib/store.svelte";
   import NavRail from "./components/NavRail.svelte";
   import Setup from "./components/Setup.svelte";
@@ -12,9 +11,6 @@
   import Icon from "./components/Icon.svelte";
   import Clawd from "./components/Clawd.svelte";
 
-  // The hosting Obsidian view (available for future use, e.g. view-scoped events).
-  let { component: _view }: { component: ItemView } = $props();
-
   onMount(() => {
     void store.refresh();
   });
@@ -24,10 +20,10 @@
   $effect(() => {
     const err = store.error;
     if (!err || hoverError) return;
-    const t = setTimeout(() => {
+    const t = window.setTimeout(() => {
       if (store.error === err) store.error = null;
     }, 10_000);
-    return () => clearTimeout(t);
+    return () => window.clearTimeout(t);
   });
 
   let dialogEl = $state<HTMLDivElement>();

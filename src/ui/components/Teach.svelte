@@ -88,7 +88,7 @@
       slow = false;
       const ctl = new AbortController();
       request = ctl;
-      const slowTimer = setTimeout(() => (slow = true), 8_000);
+      const slowTimer = window.setTimeout(() => (slow = true), 8_000);
       if (hadFocus) void tick().then(() => { if (rootEl && !rootEl.contains(document.activeElement)) rootEl.focus({ preventScroll: true }); });
       store.say("thinking", "Hmm, let me think about how to put this…");
       try {
@@ -117,11 +117,11 @@
           }
           store.say("happy", "Okay, stopped.");
         } else {
-          push({ from: "error", text: errText(e), retry: turn });
+          push({ from: "error", text: errText(e), retry: () => void turn() });
           store.say("confused", "Oops, I couldn't reach my brain.");
         }
       } finally {
-        clearTimeout(slowTimer);
+        window.clearTimeout(slowTimer);
         if (request === ctl) request = null;
         slow = false;
         busy = false;

@@ -56,8 +56,11 @@
   stroke-width={stroke}
   stroke-linecap="round"
   stroke-linejoin="round"
-  aria-hidden="true">{@html PATHS[name] ?? ""}</svg
+  aria-hidden="true"
 >
+  <!-- eslint-disable-next-line svelte/no-at-html-tags -- only the fixed shapes above, never text from a reply or note -->
+  {@html PATHS[name] ?? ""}
+</svg>
 
 <style>
   .icon {
