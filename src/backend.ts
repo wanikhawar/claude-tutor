@@ -102,7 +102,7 @@ export class Backend {
     public library: Library,
     public progress: Progress,
     private settings: () => TutorSettings,
-    private claudeCwd: string,
+    private cliCwd: string,
     private openSettingsTab: () => void,
     private saveSettings: () => Promise<void>,
   ) {}
@@ -130,7 +130,7 @@ export class Backend {
     const s = this.settings();
     // Tied to the backend's lifetime: a plugin reload mid-discovery mustn't save over the new instance's settings.
     const signal = this.requests.signal;
-    const { version, models } = await listModels(provider, { path: provider === "codex" ? s.codexPath : s.claudePath, cwd: this.claudeCwd, signal });
+    const { version, models } = await listModels(provider, { path: provider === "codex" ? s.codexPath : s.claudePath, cwd: this.cliCwd, signal });
     if (signal.aborted) return;
     s.discovered = [...s.discovered.filter((m) => m.provider !== provider), ...models];
     s.versions[provider] = version;
@@ -143,7 +143,7 @@ export class Backend {
     this.emit();
   }
 
-  private claude(signal?: AbortSignal): RequestOptions {
+  private requestOptions(signal?: AbortSignal): RequestOptions {
     const s = this.settings();
     const alias = s.model;
     const codex = s.provider === "codex";
@@ -152,7 +152,7 @@ export class Backend {
       path: codex ? s.codexPath : s.claudePath,
       model: alias,
       effort: s.effort,
-      cwd: this.claudeCwd,
+      cwd: this.cliCwd,
       signal: signal ? AbortSignal.any([this.requests.signal, signal]) : this.requests.signal,
       // Remember which exact model the alias resolved to, so the picker can show it.
       onModel: (id) => {
@@ -248,7 +248,7 @@ export class Backend {
 
   /** Have Claude read one note and extract its concepts. */
   async indexNote(key: string, signal?: AbortSignal): Promise<Snapshot> {
-    const options = this.claude(signal);
+    const options = this.requestOptions(signal);
     await this.library.waitForFile(key);
     if (options.signal?.aborted) throw cancelled("Claude");
     const note = this.note(key);
@@ -347,7 +347,7 @@ export class Backend {
   }): Promise<FeynmanEval> {
     const concept = this.concept(a.conceptId);
     const [noteTitle, noteBody] = this.noteText(concept.note_path, NOTE_BUDGET);
-    const ev = await tutor.evaluateFeynman(this.claude(a.signal), {
+    const ev = await tutor.evaluateFeynman(this.requestOptions(a.signal), {
       concept,
       question: a.question,
       noteTitle,
@@ -402,7 +402,7 @@ export class Backend {
       .openMisconceptions()
       .filter((m) => m.concept_id !== null && ids.has(m.concept_id))
       .slice(0, 10);
-    const quiz = await tutor.makeQuiz(this.claude(signal), materials, misc, Math.min(12, Math.max(1, count)));
+    const quiz = await tutor.makeQuiz(this.requestOptions(signal), materials, misc, Math.min(12, Math.max(1, count)));
     for (const q of quiz.questions) {
       const concept = pool.find((c) => c.id === q.concept_id);
       if (!concept) throw new Error("Claude returned a question for a concept outside this quiz.");
@@ -448,7 +448,7 @@ export class Backend {
       const context = `Concept: ${concept.name}\nSummary: ${concept.summary}\nKey excerpt: ${concept.excerpt}\n\nNote:\n${this.noteText(concept.note_path, 10_000)[1]}` +
         (target ? `\n\nMisconception being practised: ${target.text}` : "");
       const label = { guess: "just guessing", unsure: "somewhat unsure", sure: "confident" }[confidence];
-      grade = await tutor.grade(this.claude(signal), question, userAnswer, label, context, images, target);
+      grade = await tutor.grade(this.requestOptions(signal), question, userAnswer, label, context, images, target);
     }
 
     if (grade.misconception_id !== null && (!Number.isInteger(grade.misconception_id) || grade.misconception_id !== target?.id)) {
@@ -481,7 +481,7 @@ export class Backend {
   }): Promise<CheckResult> {
     this.concept(a.conceptId);
     const original = this.progress.openMisconceptions().find((m) => m.id === a.misconceptionId);
-    const r = await tutor.check(this.claude(a.signal), a.question, a.key, original?.text ?? a.misconception, a.answer, a.images);
+    const r = await tutor.check(this.requestOptions(a.signal), a.question, a.key, original?.text ?? a.misconception, a.answer, a.images);
     if (r.understood && a.misconceptionId !== null) this.progress.resolveMisconception(a.misconceptionId);
     return r;
   }
@@ -522,7 +522,7 @@ export class Backend {
         .map((x) => x.name);
       context = `${situation}\n\nConcepts in the learner's notes: ${names.join(", ")}`;
     }
-    return tutor.chat(this.claude(signal), context, turns, message, images);
+    return tutor.chat(this.requestOptions(signal), context, turns, message, images);
   }
 
   // -------------------------------------------------------------------------
@@ -583,7 +583,7 @@ export class Backend {
       })
       .filter(Boolean)
       .join("\n\n");
-    return tutor.teach(this.claude(signal), topic, context, history, message, images);
+    return tutor.teach(this.requestOptions(signal), topic, context, history, message, images);
   }
 
   /** Save a finished lesson as a note in the vault and open it. Returns its path. */
