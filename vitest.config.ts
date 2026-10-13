@@ -4,7 +4,14 @@ import ts from "typescript";
 import { fileURLToPath } from "node:url";
 
 export default defineConfig({
-  test: { setupFiles: ["./tests/setup.ts"] },
+  test: {
+    setupFiles: ["./tests/setup.ts"],
+    // Tests never touch the network. Happy DOM, unlike a browser, loads frames and styles even
+    // in the inert document replies are rendered into, so tests of untrusted HTML would reach out.
+    environmentOptions: {
+      happyDOM: { settings: { disableIframePageLoading: true, disableCSSFileLoading: true, disableJavaScriptFileLoading: true } },
+    },
+  },
   resolve: {
     alias: { obsidian: fileURLToPath(new URL("./tests/obsidian.mock.ts", import.meta.url)) },
     conditions: ["browser"],

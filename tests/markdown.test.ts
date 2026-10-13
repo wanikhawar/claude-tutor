@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import nodeConsole from "node:console";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushSync, mount, unmount } from "svelte";
 import { Component, MarkdownRenderer, type App } from "obsidian";
 import Markdown from "../src/ui/components/Markdown.svelte";
@@ -20,6 +21,15 @@ Object.assign(globalThis, {
     for (const [k, v] of Object.entries(o.attr ?? {})) el.setAttribute(k, v);
     return el;
   },
+});
+
+// Happy DOM reports each frame or stylesheet it didn't load (see vitest.config.ts); that's expected here.
+// It reports to Node's console, not the one Vitest gives tests.
+beforeEach(() => {
+  const error = nodeConsole.error.bind(nodeConsole);
+  vi.spyOn(nodeConsole, "error").mockImplementation((...args) => {
+    if (!String(args[0]).includes("loading is disabled")) error(...args);
+  });
 });
 
 afterEach(() => {
