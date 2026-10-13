@@ -13,7 +13,12 @@
 
   function open(e: MouseEvent) {
     const menu = new Menu();
-    menu.addItem((i) => i.setTitle("Upload image…").setIcon("upload").onClick(() => input?.click()));
+    menu.addItem((i) =>
+      i
+        .setTitle("Upload image…")
+        .setIcon("upload")
+        .onClick(() => input?.click()),
+    );
     menu.addItem((i) =>
       i
         .setTitle("Image from vault…")
@@ -39,7 +44,9 @@
   }}
 />
 <button type="button" class="attach" title="Attach an image of your work" aria-label="Attach image" onclick={open}>
-  <Icon name="plus" size={22} stroke={1.7} />{#if attachments.images.length}<span class="n">{attachments.images.length}</span>{/if}
+  <Icon name="plus" size={22} stroke={1.7} />{#if attachments.images.length}<span class="n"
+      >{attachments.images.length}</span
+    >{/if}
 </button>
 {#if attachments.preparing}<span class="preparing" role="status">Preparing image…</span>{/if}
 

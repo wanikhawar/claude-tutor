@@ -11,7 +11,11 @@ import { isCancel } from "../src/ui/lib/api";
 import { fixture } from "./helpers";
 
 let dir: string | undefined;
-afterEach(async () => { vi.unstubAllEnvs(); if (dir) await rm(dir, { recursive: true, force: true, maxRetries: 10 }); dir = undefined; });
+afterEach(async () => {
+  vi.unstubAllEnvs();
+  if (dir) await rm(dir, { recursive: true, force: true, maxRetries: 10 });
+  dir = undefined;
+});
 
 async function executable(code: string) {
   dir = await mkdtemp(join(tmpdir(), "claude-tutor-test-"));
@@ -53,8 +57,9 @@ const NPM_SHIM = [
 describe("Claude process lifecycle", () => {
   it("rejects orderly when a CLI exits before reading a large image payload", async () => {
     const opts = await executable("process.exit(1)");
-    await expect(ask(opts, "System", "Prompt", {}, [{ mediaType: "image/png", data: "a".repeat(8_000_000) }]))
-      .rejects.toThrow(/Couldn't send input|exited with code/);
+    await expect(
+      ask(opts, "System", "Prompt", {}, [{ mediaType: "image/png", data: "a".repeat(8_000_000) }]),
+    ).rejects.toThrow(/Couldn't send input|exited with code/);
   });
 
   it("cancels a running request and does not report a later model response", async () => {
@@ -70,14 +75,21 @@ describe("Claude process lifecycle", () => {
   it("does not launch an already-cancelled request", async () => {
     const controller = new AbortController();
     controller.abort();
-    await expect(ask({ path: "/not/a/claude/binary", model: "", cwd: tmpdir(), signal: controller.signal }, "", "", {})).rejects.toThrow("cancelled");
+    await expect(
+      ask({ path: "/not/a/claude/binary", model: "", cwd: tmpdir(), signal: controller.signal }, "", "", {}),
+    ).rejects.toThrow("cancelled");
   });
 
   it("fails a cancelled request of either CLI with an error the UI recognises", async () => {
     const controller = new AbortController();
     controller.abort();
     for (const provider of ["claude", "codex"] as const) {
-      const failure = await ask({ provider, path: "/not/a/binary", model: "", cwd: tmpdir(), signal: controller.signal }, "", "", {}).catch((e: unknown) => e);
+      const failure = await ask(
+        { provider, path: "/not/a/binary", model: "", cwd: tmpdir(), signal: controller.signal },
+        "",
+        "",
+        {},
+      ).catch((e: unknown) => e);
       expect(isCancel(failure)).toBe(true);
     }
     expect(isCancel(new Error("claude exited with code 1"))).toBe(false);
@@ -86,11 +98,19 @@ describe("Claude process lifecycle", () => {
 
 describe("model discovery", () => {
   const response = (models: object[]) =>
-    JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: "models", response: { claude_code_version: "2.1.296", models } } });
+    JSON.stringify({
+      type: "control_response",
+      response: { subtype: "success", request_id: "models", response: { claude_code_version: "2.1.296", models } },
+    });
 
   it("reads the model list from the initialize handshake and maps the default to an empty id", () => {
     const out = `{"type":"system"}\nnot json\n${response([
-      { value: "default", resolvedModel: "claude-opus-5-5", displayName: "Default (recommended)", description: "Opus 5.5" },
+      {
+        value: "default",
+        resolvedModel: "claude-opus-5-5",
+        displayName: "Default (recommended)",
+        description: "Opus 5.5",
+      },
       { value: "sonnet", resolvedModel: "claude-sonnet-5-5", displayName: "Sonnet 5.5", description: "Efficient" },
     ])}\n`;
     expect(parseModelList(out)).toEqual({
@@ -144,12 +164,18 @@ describe("Codex CLI", () => {
       next: null,
     });
     expect(parseCodexModelList(JSON.stringify({ id: 1, result: {} }))).toBeNull();
-    expect(() => parseCodexModelList(JSON.stringify({ id: 2, error: { message: "not logged in" } }))).toThrow("not logged in");
+    expect(() => parseCodexModelList(JSON.stringify({ id: 2, error: { message: "not logged in" } }))).toThrow(
+      "not logged in",
+    );
   });
 
   it("takes the last agent message as the reply and surfaces failed turns", () => {
     const events = (...e: object[]) => e.map((x) => JSON.stringify(x)).join("\n");
-    const ok = events({ type: "thread.started" }, { type: "item.completed", item: { type: "agent_message", text: '{"answer":"hi"}' } }, { type: "turn.completed" });
+    const ok = events(
+      { type: "thread.started" },
+      { type: "item.completed", item: { type: "agent_message", text: '{"answer":"hi"}' } },
+      { type: "turn.completed" },
+    );
     expect(parseCodexResult<{ answer: string }>(ok, "", 0)).toEqual({ answer: "hi" });
     const failed = events({ type: "turn.failed", error: { message: "model not supported on your plan" } });
     expect(() => parseCodexResult(failed, "", 1)).toThrow("model not supported on your plan");
@@ -158,7 +184,11 @@ describe("Codex CLI", () => {
   it("never accepts a reply from a turn that then failed", () => {
     const events = (...e: object[]) => e.map((x) => JSON.stringify(x)).join("\n");
     const early = { type: "item.completed", item: { type: "agent_message", text: '{"answer":"draft"}' } };
-    const failed = events(early, { type: "error", message: "stream disconnected" }, { type: "turn.failed", error: { message: "stream disconnected" } });
+    const failed = events(
+      early,
+      { type: "error", message: "stream disconnected" },
+      { type: "turn.failed", error: { message: "stream disconnected" } },
+    );
     expect(() => parseCodexResult(failed, "", 1)).toThrow("codex exited with code 1: stream disconnected");
     expect(() => parseCodexResult(failed, "", 0)).toThrow("Codex returned an error: stream disconnected");
     expect(() => parseCodexResult(events(early), "killed", 1)).toThrow("codex exited with code 1: killed");
@@ -190,7 +220,10 @@ describe("Codex CLI", () => {
         if (m.method === "model/list") console.log(JSON.stringify({ id: m.id, result: pages[m.params.cursor ?? ""] }));
       });`);
     const found = await listCodexModels(opts);
-    expect(found).toEqual({ version: "0.162.1", models: [expect.objectContaining({ id: "gpt-6-sol" }), expect.objectContaining({ id: "gpt-6-mini" })] });
+    expect(found).toEqual({
+      version: "0.162.1",
+      models: [expect.objectContaining({ id: "gpt-6-sol" }), expect.objectContaining({ id: "gpt-6-mini" })],
+    });
   });
 
   it("runs codex exec read-only, without agent tools, with the schema, model, effort and images", async () => {
@@ -285,14 +318,25 @@ describe("Codex CLI", () => {
   });
 
   it("doesn't save discovered models after the backend is disposed", async () => {
-    const reply = [JSON.stringify({ id: 1, result: { userAgent: "x/0.161.0" } }), JSON.stringify({ id: 2, result: { data: [{ model: "gpt-6-sol" }] } })];
+    const reply = [
+      JSON.stringify({ id: 1, result: { userAgent: "x/0.161.0" } }),
+      JSON.stringify({ id: 2, result: { data: [{ model: "gpt-6-sol" }] } }),
+    ];
     const opts = await executable(`
       process.stdin.resume();
       setTimeout(() => { console.log(${JSON.stringify(reply.join("\n"))}); }, 300);`);
     const f = fixture();
     f.settings.codexPath = opts.path;
     const save = vi.fn(async () => {});
-    const backend = new Backend(f.app, f.library, f.progress, () => f.settings, opts.cwd, () => {}, save);
+    const backend = new Backend(
+      f.app,
+      f.library,
+      f.progress,
+      () => f.settings,
+      opts.cwd,
+      () => {},
+      save,
+    );
     const discovery = backend.discoverModels("codex");
     backend.dispose();
     await expect(discovery).rejects.toThrow("cancelled");
@@ -303,23 +347,50 @@ describe("Codex CLI", () => {
 });
 
 describe("shared CLI runner", () => {
-  const base = { command: "tool", who: "Tool", product: "Tool CLI", timeoutMs: 5000, timeoutMessage: "Tool timed out.", start: (stdin: NodeJS.WritableStream) => stdin.end() };
+  const base = {
+    command: "tool",
+    who: "Tool",
+    product: "Tool CLI",
+    timeoutMs: 5000,
+    timeoutMessage: "Tool timed out.",
+    start: (stdin: NodeJS.WritableStream) => stdin.end(),
+  };
 
   it("explains a missing CLI and how to fix it", async () => {
-    await expect(runCli({ ...base, bin: "/not/a/tool", args: [], cwd: tmpdir(), onExit: () => "never" }))
-      .rejects.toThrow('Couldn\'t find the `tool` command (looked for "/not/a/tool"). Install Tool CLI or set its path in the plugin settings.');
+    await expect(
+      runCli({ ...base, bin: "/not/a/tool", args: [], cwd: tmpdir(), onExit: () => "never" }),
+    ).rejects.toThrow(
+      'Couldn\'t find the `tool` command (looked for "/not/a/tool"). Install Tool CLI or set its path in the plugin settings.',
+    );
   });
 
   it("times out a CLI that never answers", async () => {
     const opts = await executable("process.stdin.resume(); setInterval(() => {}, 1000)");
-    await expect(runCli({ ...base, bin: opts.path, args: [], cwd: opts.cwd, timeoutMs: 200, start: () => {}, onExit: () => "never" })).rejects.toThrow("Tool timed out.");
+    await expect(
+      runCli({
+        ...base,
+        bin: opts.path,
+        args: [],
+        cwd: opts.cwd,
+        timeoutMs: 200,
+        start: () => {},
+        onExit: () => "never",
+      }),
+    ).rejects.toThrow("Tool timed out.");
   });
 
   it("stops the CLI as soon as the output has the answer", async () => {
     const opts = await executable(`console.log("ready"); setTimeout(() => process.exit(0), 5000);`);
     const started = Date.now();
     const onExit = vi.fn(() => "exited");
-    const result = await runCli({ ...base, bin: opts.path, args: [], cwd: opts.cwd, onOutput: (out) => (out.includes("ready") ? "early" : undefined), onExit });
+    const result = await runCli({
+      ...base,
+      bin: opts.path,
+      args: [],
+      cwd: opts.cwd,
+      onOutput: (out) => (out.includes("ready") ? "early" : undefined),
+      onExit,
+    });
     expect(result).toBe("early");
     expect(onExit).not.toHaveBeenCalled();
     expect(Date.now() - started).toBeLessThan(3000);
@@ -331,7 +402,13 @@ describe("shared CLI runner", () => {
       const bytes = Buffer.from("中文");
       process.stdout.write(bytes.subarray(0, 4)); process.stderr.write(bytes.subarray(0, 4));
       setTimeout(() => { process.stdout.write(bytes.subarray(4)); process.stderr.write(bytes.subarray(4)); }, 200);`);
-    const result = await runCli({ ...base, bin: opts.path, args: [], cwd: opts.cwd, onExit: ({ stdout, stderr }) => `${stdout}|${stderr}` });
+    const result = await runCli({
+      ...base,
+      bin: opts.path,
+      args: [],
+      cwd: opts.cwd,
+      onExit: ({ stdout, stderr }) => `${stdout}|${stderr}`,
+    });
     expect(result).toBe("中文|中文");
   });
 });

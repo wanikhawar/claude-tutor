@@ -44,7 +44,9 @@ export async function prepareImage(blob: Blob, name: string): Promise<Img> {
     ctx.fillStyle = "#fff"; // transparent areas become white, not black
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    out = await new Promise<Blob>((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error("encode failed"))), "image/jpeg", 0.88));
+    out = await new Promise<Blob>((res, rej) =>
+      canvas.toBlob((b) => (b ? res(b) : rej(new Error("encode failed"))), "image/jpeg", 0.88),
+    );
   }
   bitmap.close();
   const url = await readAsDataUrl(out);

@@ -21,14 +21,20 @@
     onchoose: (i: number) => void;
   } = $props();
 
-  const KIND = { mcq: "Multiple choice", short: "Short answer", explain_why: "Explain why", spot_error: "Spot the error" };
+  const KIND = {
+    mcq: "Multiple choice",
+    short: "Short answer",
+    explain_why: "Explain why",
+    spot_error: "Spot the error",
+  };
   const mcq = $derived(q.kind === "mcq" && q.options.length > 0);
   const revealed = $derived(answered !== null);
 
   /** Arrow keys move the selection, like native radio buttons. */
   function onKey(e: KeyboardEvent) {
     if (!interactive) return;
-    const dir = e.key === "ArrowDown" || e.key === "ArrowRight" ? 1 : e.key === "ArrowUp" || e.key === "ArrowLeft" ? -1 : 0;
+    const dir =
+      e.key === "ArrowDown" || e.key === "ArrowRight" ? 1 : e.key === "ArrowUp" || e.key === "ArrowLeft" ? -1 : 0;
     if (!dir) return;
     e.preventDefault();
     e.stopPropagation();
@@ -62,13 +68,19 @@
           disabled={!interactive}
           onclick={() => onchoose(i)}
         >
-          <span class="key">{correct ? "" : "ABCD"[i] ?? i + 1}{#if correct}<Icon name="check" size={14} stroke={3} />{/if}</span>
+          <span class="key"
+            >{correct ? "" : ("ABCD"[i] ?? i + 1)}{#if correct}<Icon name="check" size={14} stroke={3} />{/if}</span
+          >
           <span class="opt-text"><Markdown md={o} inline /></span>
-          {#if correct}<span class="ct-sr-only">(correct answer)</span>{:else if wrong}<span class="ct-sr-only">(your answer, incorrect)</span>{/if}
+          {#if correct}<span class="ct-sr-only">(correct answer)</span>{:else if wrong}<span class="ct-sr-only"
+              >(your answer, incorrect)</span
+            >{/if}
         </button>
       {/each}
     </div>
-    {#if interactive}<p class="faint small">Press 1–{q.options.length} to choose, G / U / C for how sure you are</p>{/if}
+    {#if interactive}<p class="faint small">
+        Press 1–{q.options.length} to choose, G / U / C for how sure you are
+      </p>{/if}
   {/if}
 </div>
 

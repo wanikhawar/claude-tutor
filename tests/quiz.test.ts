@@ -14,14 +14,26 @@ function setup() {
   return { ...f, a, b, q };
 }
 const wrong: Grade = {
-  correct: false, score: 0, feedback: "Try again", misconception: "Thinks the wrong answer is right", misconception_id: null, prerequisite_gap: "",
-  lesson: "A correction", analogy: "", check_question: "Did it click?", check_answer: "Yes", mood: "encouraging", mascot_line: "Keep trying",
+  correct: false,
+  score: 0,
+  feedback: "Try again",
+  misconception: "Thinks the wrong answer is right",
+  misconception_id: null,
+  prerequisite_gap: "",
+  lesson: "A correction",
+  analogy: "",
+  check_question: "Did it click?",
+  check_answer: "Yes",
+  mood: "encouraging",
+  mascot_line: "Keep trying",
 };
 
 describe("quiz identities", () => {
   it("preserves the selected concept ID and reviews the correct note for duplicate names", async () => {
     const f = setup();
-    const make = vi.spyOn(tutor, "makeQuiz").mockResolvedValue({ questions: [f.q], mood: "curious", mascot_line: "Quiz" });
+    const make = vi
+      .spyOn(tutor, "makeQuiz")
+      .mockResolvedValue({ questions: [f.q], mood: "curious", mascot_line: "Quiz" });
     const set = await f.backend.makeQuiz([f.b.id], 1);
     expect(make.mock.calls[0][1].map((m) => m.concept.id)).toEqual([f.b.id]);
     await f.backend.gradeAnswer(set.questions[0], 0, "", "sure");
@@ -41,7 +53,11 @@ describe("quiz identities", () => {
 
   it("rejects question IDs outside the selected pool rather than finding a name match", async () => {
     const f = setup();
-    vi.spyOn(tutor, "makeQuiz").mockResolvedValue({ questions: [question(f.a.id)], mood: "curious", mascot_line: "Quiz" });
+    vi.spyOn(tutor, "makeQuiz").mockResolvedValue({
+      questions: [question(f.a.id)],
+      mood: "curious",
+      mascot_line: "Quiz",
+    });
     await expect(f.backend.makeQuiz([f.b.id], 1)).rejects.toThrow("outside this quiz");
   });
 
@@ -49,12 +65,26 @@ describe("quiz identities", () => {
     const f = setup();
     const id = f.progress.addMisconception(f.b.id, wrong.misconception);
     const ask = vi.spyOn(providers, "ask").mockResolvedValue({ questions: [f.q] });
-    await tutor.makeQuiz({ path: "", model: "", cwd: "/tmp" }, [{ concept: f.b, noteTitle: "B", noteBody: "body" }], [{ id, concept_id: f.b.id, text: wrong.misconception }], 1);
+    await tutor.makeQuiz(
+      { path: "", model: "", cwd: "/tmp" },
+      [{ concept: f.b, noteTitle: "B", noteBody: "body" }],
+      [{ id, concept_id: f.b.id, text: wrong.misconception }],
+      1,
+    );
     expect(ask.mock.calls[0][2]).toContain(`Concept ID ${f.b.id}`);
     expect(ask.mock.calls[0][2]).toContain(`Misconception ID ${id}`);
-    expect(ask.mock.calls[0][3]).toMatchObject({ properties: { questions: { items: { properties: {
-      concept_id: { enum: [f.b.id] }, misconception_id: { enum: [null, id] },
-    } } } } });
+    expect(ask.mock.calls[0][3]).toMatchObject({
+      properties: {
+        questions: {
+          items: {
+            properties: {
+              concept_id: { enum: [f.b.id] },
+              misconception_id: { enum: [null, id] },
+            },
+          },
+        },
+      },
+    });
   });
 });
 
@@ -67,8 +97,17 @@ describe("targeted misconception practice", () => {
     const out = await f.backend.gradeAnswer(f.q, 1, "", "sure");
     expect(out.misconception_id).toBe(id);
     expect(f.progress.data.misconceptions).toHaveLength(1);
-    const check = vi.spyOn(tutor, "check").mockResolvedValue({ understood: true, feedback: "Got it", mood: "proud", mascot_line: "Yes" });
-    await f.backend.checkAnswer({ conceptId: f.b.id, question: "Check", key: "Key", misconception: "Different wording", answer: "Yes", misconceptionId: out.misconception_id });
+    const check = vi
+      .spyOn(tutor, "check")
+      .mockResolvedValue({ understood: true, feedback: "Got it", mood: "proud", mascot_line: "Yes" });
+    await f.backend.checkAnswer({
+      conceptId: f.b.id,
+      question: "Check",
+      key: "Key",
+      misconception: "Different wording",
+      answer: "Yes",
+      misconceptionId: out.misconception_id,
+    });
     expect(check.mock.calls[0][3]).toBe(wrong.misconception);
     expect(f.progress.openMisconceptions()).toEqual([]);
   });
@@ -77,7 +116,9 @@ describe("targeted misconception practice", () => {
     const f = setup();
     const id = f.progress.addMisconception(f.b.id, wrong.misconception);
     f.q.misconception_id = id;
-    const grade = vi.spyOn(tutor, "grade").mockResolvedValue({ ...wrong, misconception_id: id, misconception: "The original belief, rephrased" });
+    const grade = vi
+      .spyOn(tutor, "grade")
+      .mockResolvedValue({ ...wrong, misconception_id: id, misconception: "The original belief, rephrased" });
     const out = await f.backend.gradeAnswer(f.q, 1, "", "unsure");
     expect(grade.mock.calls[0][6]).toMatchObject({ id, text: wrong.misconception });
     expect(out.misconception_id).toBe(id);
@@ -88,13 +129,27 @@ describe("targeted misconception practice", () => {
     const f = setup();
     const original = f.progress.addMisconception(f.b.id, "Thinks kinetic energy is linear in speed");
     f.q.misconception_id = original;
-    const diagnosed = { ...wrong, misconception: "Thinks mass can be negative", check_question: "Can mass be negative?", check_answer: "No" };
+    const diagnosed = {
+      ...wrong,
+      misconception: "Thinks mass can be negative",
+      check_question: "Can mass be negative?",
+      check_answer: "No",
+    };
     vi.spyOn(tutor, "grade").mockResolvedValue(diagnosed);
     const out = await f.backend.gradeAnswer(f.q, 1, "", "sure");
     expect(out.misconception_id).not.toBe(original);
     expect(f.progress.openMisconceptions().map((m) => m.text)).toContain(diagnosed.misconception);
-    const check = vi.spyOn(tutor, "check").mockResolvedValue({ understood: true, feedback: "Mass is positive", mood: "proud", mascot_line: "Yes" });
-    await f.backend.checkAnswer({ conceptId: f.b.id, question: diagnosed.check_question, key: diagnosed.check_answer, misconception: diagnosed.misconception, answer: "No", misconceptionId: out.misconception_id });
+    const check = vi
+      .spyOn(tutor, "check")
+      .mockResolvedValue({ understood: true, feedback: "Mass is positive", mood: "proud", mascot_line: "Yes" });
+    await f.backend.checkAnswer({
+      conceptId: f.b.id,
+      question: diagnosed.check_question,
+      key: diagnosed.check_answer,
+      misconception: diagnosed.misconception,
+      answer: "No",
+      misconceptionId: out.misconception_id,
+    });
     expect(check.mock.calls[0][3]).toBe(diagnosed.misconception);
     expect(f.progress.openMisconceptions().map((m) => m.id)).toEqual([original]);
   });
@@ -132,7 +187,11 @@ describe("targeted misconception practice", () => {
     const f = setup();
     const id = f.progress.addMisconception(f.b.id, wrong.misconception);
     const ask = vi.spyOn(providers, "ask").mockResolvedValue({ ...wrong, misconception_id: id });
-    await tutor.grade({ path: "", model: "", cwd: "/tmp" }, f.q, "Wrong", "unsure", "Note context", [], { id, concept_id: f.b.id, text: wrong.misconception });
+    await tutor.grade({ path: "", model: "", cwd: "/tmp" }, f.q, "Wrong", "unsure", "Note context", [], {
+      id,
+      concept_id: f.b.id,
+      text: wrong.misconception,
+    });
     expect(ask.mock.calls[0][2]).toContain(`Existing misconception: ID ${id}`);
     expect(ask.mock.calls[0][3]).toMatchObject({ properties: { misconception_id: { enum: [null, id] } } });
   });
@@ -147,15 +206,46 @@ describe("targeted misconception practice", () => {
   it("leaves the original mistake open when the follow-up check fails", async () => {
     const f = setup();
     const id = f.progress.addMisconception(f.b.id, wrong.misconception);
-    vi.spyOn(tutor, "check").mockResolvedValue({ understood: false, feedback: "Not yet", mood: "encouraging", mascot_line: "Try again" });
-    await f.backend.checkAnswer({ conceptId: f.b.id, question: "Check", key: "Key", misconception: wrong.misconception, answer: "No", misconceptionId: id });
+    vi.spyOn(tutor, "check").mockResolvedValue({
+      understood: false,
+      feedback: "Not yet",
+      mood: "encouraging",
+      mascot_line: "Try again",
+    });
+    await f.backend.checkAnswer({
+      conceptId: f.b.id,
+      question: "Check",
+      key: "Key",
+      misconception: wrong.misconception,
+      answer: "No",
+      misconceptionId: id,
+    });
     expect(f.progress.openMisconceptions().map((m) => m.id)).toEqual([id]);
   });
 });
 
-const feedback = { score: 40, passed: false, got_right: [], gaps: [{ issue: "Mixes up cause and effect", kind: "wrong" }], reteach: "", analogy: "",
-  next_prompt: "", note_issues: [], prerequisite_gap: "", mood: "encouraging", mascot_line: "Nearly" } as unknown as FeynmanEval;
-const explain = (conceptId: number) => ({ conceptId, question: "Why?", explanation: "Because", attempt: 0, previousGaps: [], peeked: false, stuck: false });
+const feedback = {
+  score: 40,
+  passed: false,
+  got_right: [],
+  gaps: [{ issue: "Mixes up cause and effect", kind: "wrong" }],
+  reteach: "",
+  analogy: "",
+  next_prompt: "",
+  note_issues: [],
+  prerequisite_gap: "",
+  mood: "encouraging",
+  mascot_line: "Nearly",
+} as unknown as FeynmanEval;
+const explain = (conceptId: number) => ({
+  conceptId,
+  question: "Why?",
+  explanation: "Because",
+  attempt: 0,
+  previousGaps: [],
+  peeked: false,
+  stuck: false,
+});
 
 describe("what goes with a request", () => {
   it("teaches only from notes you picked for Clawd to read", async () => {
@@ -196,7 +286,16 @@ describe("what goes with a request", () => {
     await expect(f.backend.gradeAnswer(f.q, 1, "", "unsure")).rejects.toThrow(gone);
     await expect(f.backend.makeQuiz([f.b.id], 1)).rejects.toThrow("No concepts");
     await expect(f.backend.evaluateExplanation(explain(f.b.id))).rejects.toThrow(gone);
-    await expect(f.backend.checkAnswer({ conceptId: f.b.id, question: "Check", key: "Key", misconception: "", answer: "Yes", misconceptionId: id })).rejects.toThrow(gone);
+    await expect(
+      f.backend.checkAnswer({
+        conceptId: f.b.id,
+        question: "Check",
+        key: "Key",
+        misconception: "",
+        answer: "Yes",
+        misconceptionId: id,
+      }),
+    ).rejects.toThrow(gone);
     await expect(f.backend.askTutor(f.b.id, "Quiz", [], "Help")).rejects.toThrow(gone);
     await f.backend.teach("idea", ["b.md"], [], "Start");
     for (const call of calls.slice(0, 5)) expect(call).not.toHaveBeenCalled();
@@ -212,7 +311,9 @@ describe("what goes with a request", () => {
     f.settings.excludedFolders = [];
     f.settings.studyFolders = [];
     f.settings.studyFiles = ["other.md"];
-    await expect(f.backend.teach("idea", ["picked.md", "other.md"], history, "Go on")).rejects.toThrow("Start a new lesson");
+    await expect(f.backend.teach("idea", ["picked.md", "other.md"], history, "Go on")).rejects.toThrow(
+      "Start a new lesson",
+    );
     expect(teach).toHaveBeenCalledTimes(1);
     // A new lesson starts from the notes still there.
     await f.backend.teach("idea", ["picked.md", "other.md"], [], "Start");
@@ -224,20 +325,31 @@ describe("what goes with a request", () => {
     const f = setup();
     const chat = vi.spyOn(tutor, "chat").mockResolvedValue({ reply: "", mood: "happy", mascot_line: "" });
     const history: [boolean, string, number | null][] = [
-      [true, "Hi!", null], [true, "What's this one about?", f.b.id], [false, "It's about…", f.b.id],
-      [true, "What's in my other note?", f.a.id], [false, "It says the secret formula is…", f.a.id],
+      [true, "Hi!", null],
+      [true, "What's this one about?", f.b.id],
+      [false, "It's about…", f.b.id],
+      [true, "What's in my other note?", f.a.id],
+      [false, "It says the secret formula is…", f.a.id],
       // About b, but the request carried the turns above, so the reply could quote a.
-      [true, "Compare them?", f.b.id], [false, "Unlike the secret formula, …", f.b.id],
+      [true, "Compare them?", f.b.id],
+      [false, "Unlike the secret formula, …", f.b.id],
     ];
     f.settings.studyFolders = [];
     f.settings.studyFiles = ["b.md"];
     await f.backend.askTutor(f.b.id, "Quiz", history, "Help");
-    expect(chat.mock.calls[0][2]).toEqual([[true, "Hi!"], [true, "What's this one about?"], [false, "It's about…"]]);
+    expect(chat.mock.calls[0][2]).toEqual([
+      [true, "Hi!"],
+      [true, "What's this one about?"],
+      [false, "It's about…"],
+    ]);
   });
 
   it("stops sharing a deleted note's summary and excerpt", async () => {
     const f = setup();
-    f.files.splice(f.files.findIndex((x) => x.path === "b.md"), 1);
+    f.files.splice(
+      f.files.findIndex((x) => x.path === "b.md"),
+      1,
+    );
     const grade = vi.spyOn(tutor, "grade").mockResolvedValue(wrong);
     await expect(f.backend.gradeAnswer(f.q, 1, "", "unsure")).rejects.toThrow("no longer in your library");
     expect(grade).not.toHaveBeenCalled();
@@ -245,12 +357,15 @@ describe("what goes with a request", () => {
 });
 
 describe("re-reading a note during a session", () => {
-  const reread = (f: ReturnType<typeof setup>) => f.progress.saveConcepts("b.md", "hash:b2", [extracted("Renamed idea")]);
+  const reread = (f: ReturnType<typeof setup>) =>
+    f.progress.saveConcepts("b.md", "hash:b2", [extracted("Renamed idea")]);
 
   it("still makes a quiz planned before the re-read", async () => {
     const f = setup();
     reread(f);
-    const make = vi.spyOn(tutor, "makeQuiz").mockResolvedValue({ questions: [f.q], mood: "curious", mascot_line: "Quiz" });
+    const make = vi
+      .spyOn(tutor, "makeQuiz")
+      .mockResolvedValue({ questions: [f.q], mood: "curious", mascot_line: "Quiz" });
     const set = await f.backend.makeQuiz([f.b.id], 1);
     expect(make.mock.calls[0][1].map((m) => m.concept.name)).toEqual(["Shared idea"]);
     vi.spyOn(tutor, "grade").mockResolvedValue(wrong);

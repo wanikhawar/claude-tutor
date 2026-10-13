@@ -29,7 +29,11 @@
   let dialogEl = $state<HTMLDivElement>();
   $effect(() => {
     // A selector list matches in document order, so look for the primary button first.
-    if (store.dialog) (dialogEl?.querySelector<HTMLButtonElement>("button.primary") ?? dialogEl?.querySelector<HTMLButtonElement>("button"))?.focus();
+    if (store.dialog)
+      (
+        dialogEl?.querySelector<HTMLButtonElement>("button.primary") ??
+        dialogEl?.querySelector<HTMLButtonElement>("button")
+      )?.focus();
   });
 
   function dialogKey(e: KeyboardEvent) {
@@ -89,7 +93,9 @@
       >
         <span class="toast-icon"><Icon name="alert" /></span>
         <p>{store.error}</p>
-        <button class="btn ghost icon sm" aria-label="Dismiss" onclick={() => (store.error = null)}><Icon name="x" /></button>
+        <button class="btn ghost icon sm" aria-label="Dismiss" onclick={() => (store.error = null)}
+          ><Icon name="x" /></button
+        >
       </div>
     {/if}
     {#if store.toast}
@@ -99,7 +105,9 @@
           {#if store.toast.action}
             <button class="btn sm" onclick={() => store.runToastAction()}>{store.toast.action.label}</button>
           {/if}
-          <button class="btn ghost icon sm" aria-label="Dismiss" onclick={() => (store.toast = null)}><Icon name="x" /></button>
+          <button class="btn ghost icon sm" aria-label="Dismiss" onclick={() => (store.toast = null)}
+            ><Icon name="x" /></button
+          >
         </div>
       {/key}
     {/if}
@@ -122,8 +130,12 @@
         <p id="ct-dialog-body" class="muted">{d.body}</p>
         <div class="dialog-actions">
           {#each d.choices as c (c.id)}
-            <button class="btn" class:primary={c.primary && !c.danger} class:danger={c.danger} class:strong={c.primary} onclick={() => store.answer(c.id)}
-              >{c.label}</button
+            <button
+              class="btn"
+              class:primary={c.primary && !c.danger}
+              class:danger={c.danger}
+              class:strong={c.primary}
+              onclick={() => store.answer(c.id)}>{c.label}</button
             >
           {/each}
         </div>

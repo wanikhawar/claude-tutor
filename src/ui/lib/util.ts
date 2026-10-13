@@ -85,7 +85,11 @@ export function loadDraft(app: { loadLocalStorage?: (k: string) => unknown } | u
   }
 }
 
-export function saveDraft(app: { saveLocalStorage?: (k: string, v: unknown) => void } | undefined, key: string, text: string) {
+export function saveDraft(
+  app: { saveLocalStorage?: (k: string, v: unknown) => void } | undefined,
+  key: string,
+  text: string,
+) {
   try {
     app?.saveLocalStorage?.(DRAFT + key, text.trim() ? text : null);
   } catch {

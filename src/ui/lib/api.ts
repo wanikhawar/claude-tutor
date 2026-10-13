@@ -70,8 +70,14 @@ export const api = {
     signal?: AbortSignal,
   ) => backend.askTutor(conceptId, situation, history, message, images, signal),
   relevantNotes: async (topic: string) => backend.relevantNotes(topic),
-  teach: (topic: string, sources: string[], history: [boolean, string][], message: string, images: ImageInput[] = [], signal?: AbortSignal) =>
-    backend.teach(topic, sources, history, message, images, signal),
+  teach: (
+    topic: string,
+    sources: string[],
+    history: [boolean, string][],
+    message: string,
+    images: ImageInput[] = [],
+    signal?: AbortSignal,
+  ) => backend.teach(topic, sources, history, message, images, signal),
   saveLesson: (topic: string, summary: string, sources: string[]) => backend.saveLesson(topic, summary, sources),
   resolveMistake: async (id: number) => backend.resolveMistake(id),
   reopenMistake: async (id: number) => backend.reopenMistake(id),
@@ -86,7 +92,18 @@ export function errText(e: unknown): string {
   return typeof e === "string" ? e : e instanceof Error ? e.message : JSON.stringify(e);
 }
 
-const MOODS: Mood[] = ["idle", "thinking", "happy", "celebrating", "encouraging", "concerned", "curious", "proud", "confused", "sleepy"];
+const MOODS: Mood[] = [
+  "idle",
+  "thinking",
+  "happy",
+  "celebrating",
+  "encouraging",
+  "concerned",
+  "curious",
+  "proud",
+  "confused",
+  "sleepy",
+];
 
 export function asMood(s: string | undefined, fallback: Mood): Mood {
   const m = (s ?? "").trim().toLowerCase() as Mood;

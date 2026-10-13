@@ -7,17 +7,13 @@
   import Ring from "./Ring.svelte";
 
   const v = $derived(store.view.name);
-  const items = $derived(
-    (
-      [
-        ["today", "Today", "home"],
-        ...(store.plan ? [["session", "Session", "play"]] : []),
-        ["teach", "Teach", "graduation"],
-        ["library", "Library", "book"],
-        ["mistakes", "Mistakes", "flag"],
-      ] as [View["name"], string, string][]
-    ),
-  );
+  const items = $derived([
+    ["today", "Today", "home"],
+    ...(store.plan ? [["session", "Session", "play"]] : []),
+    ["teach", "Teach", "graduation"],
+    ["library", "Library", "book"],
+    ["mistakes", "Mistakes", "flag"],
+  ] as [View["name"], string, string][]);
 
   function go(name: View["name"]) {
     store.view = { name };
@@ -27,7 +23,13 @@
 <nav class="rail" aria-label="Claude Tutor">
   <div class="items">
     {#each items as [name, label, icon] (name)}
-      <button class="item" class:active={v === name} aria-current={v === name ? "page" : undefined} title={label} onclick={() => go(name)}>
+      <button
+        class="item"
+        class:active={v === name}
+        aria-current={v === name ? "page" : undefined}
+        title={label}
+        onclick={() => go(name)}
+      >
         <span class="ico">
           <Icon name={icon} size={18} />
           {#if name === "session"}<span class="live"></span>{/if}

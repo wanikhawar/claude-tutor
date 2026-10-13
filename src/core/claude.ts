@@ -18,7 +18,13 @@ const RUN = { command: "claude", who: "Claude", product: "Claude Code" };
 const ISOLATED = ["--tools", "", "--setting-sources", "", "--no-session-persistence", "--strict-mcp-config"];
 const STREAM_JSON = ["--input-format", "stream-json", "--output-format", "stream-json", "--verbose"];
 
-export function askClaude<T>(o: RequestOptions, system: string, prompt: string, schema: object, images: ImageInput[] = []): Promise<T> {
+export function askClaude<T>(
+  o: RequestOptions,
+  system: string,
+  prompt: string,
+  schema: object,
+  images: ImageInput[] = [],
+): Promise<T> {
   // Images go in as content blocks via stream-json input; plain prompts use the simpler text mode.
   const streaming = images.length > 0;
   const args = [
@@ -45,7 +51,9 @@ export function askClaude<T>(o: RequestOptions, system: string, prompt: string, 
     // Prompts can contain whole notes, so send them over stdin, not argv.
     start: (stdin) => stdin.end(streaming ? userMessage(prompt, images) : prompt),
     onExit: ({ stdout, stderr, code }) => {
-      const { data, models } = streaming ? parseStreamResult<T>(stdout, stderr, code) : parseResult<T>(stdout, stderr, code);
+      const { data, models } = streaming
+        ? parseStreamResult<T>(stdout, stderr, code)
+        : parseResult<T>(stdout, stderr, code);
       if (models[0]) o.onModel?.(models[0]);
       return data;
     },
@@ -65,7 +73,10 @@ export function listClaudeModels(o: Pick<RequestOptions, "path" | "cwd" | "timeo
     signal: o.signal,
     timeoutMs: o.timeoutMs ?? 30_000,
     timeoutMessage: "Claude Code took too long to list its models.",
-    start: (stdin) => stdin.end(JSON.stringify({ type: "control_request", request_id: "models", request: { subtype: "initialize" } }) + "\n"),
+    start: (stdin) =>
+      stdin.end(
+        JSON.stringify({ type: "control_request", request_id: "models", request: { subtype: "initialize" } }) + "\n",
+      ),
     // Stop as soon as the answer is in rather than waiting for the CLI to exit.
     onOutput: (stdout) => parseModelList(stdout) ?? undefined,
     onExit: ({ stdout, stderr, code }) => {
@@ -118,7 +129,11 @@ export function userMessage(prompt: string, images: ImageInput[]): string {
 }
 
 /** stream-json output: many JSON lines; the last `result` line has the same shape as `--output-format json`. */
-export function parseStreamResult<T>(stdout: string, stderr: string, code: number | null): { data: T; models: string[] } {
+export function parseStreamResult<T>(
+  stdout: string,
+  stderr: string,
+  code: number | null,
+): { data: T; models: string[] } {
   const results = [...jsonLines(stdout)].filter((v) => v.type === "result");
   if (!results.length) {
     const msg = stderr.trim() || stdout.trim().slice(-500) || "no output";

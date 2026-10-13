@@ -33,14 +33,23 @@ function type(input: HTMLInputElement | HTMLTextAreaElement, text: string) {
 }
 
 beforeEach(async () => {
-  Object.defineProperty(HTMLElement.prototype, "empty", { configurable: true, value() { this.replaceChildren(); } });
+  Object.defineProperty(HTMLElement.prototype, "empty", {
+    configurable: true,
+    value() {
+      this.replaceChildren();
+    },
+  });
   Object.defineProperty(HTMLElement.prototype, "scrollTo", { configurable: true, value() {} });
   Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value() {} });
   target = document.createElement("div");
   document.body.append(target);
   f = fixture();
   for (const n of f.library.notes.values()) f.progress.saveConcepts(n.key, n.hash, [extracted()]);
-  store.init(f.backend, () => f.settings, async () => {});
+  store.init(
+    f.backend,
+    () => f.settings,
+    async () => {},
+  );
   await store.refresh();
 });
 afterEach(async () => {
@@ -55,13 +64,37 @@ describe("session quiz controls", () => {
   it("keeps the active MCQ selectable after asking Clawd and locks earlier questions", async () => {
     const conceptId = store.concepts.find((c) => c.note_path === "b.md")!.id;
     const q = question(conceptId);
-    vi.spyOn(api, "makeQuiz").mockResolvedValue({ questions: [q, { ...q, question: "Second question?" }], mood: "curious", mascot_line: "Quiz" });
-    const ask = vi.spyOn(api, "askTutor").mockResolvedValue({ reply: "Here is a hint", mood: "happy", mascot_line: "A hint" });
+    vi.spyOn(api, "makeQuiz").mockResolvedValue({
+      questions: [q, { ...q, question: "Second question?" }],
+      mood: "curious",
+      mascot_line: "Quiz",
+    });
+    const ask = vi
+      .spyOn(api, "askTutor")
+      .mockResolvedValue({ reply: "Here is a hint", mood: "happy", mascot_line: "A hint" });
     const grade = vi.spyOn(api, "gradeAnswer").mockResolvedValue({
-      grade: { correct: true, score: 100, feedback: "Yes", misconception: "", misconception_id: null, prerequisite_gap: "", lesson: "", analogy: "", check_question: "", check_answer: "", mood: "happy", mascot_line: "Good" },
+      grade: {
+        correct: true,
+        score: 100,
+        feedback: "Yes",
+        misconception: "",
+        misconception_id: null,
+        prerequisite_gap: "",
+        lesson: "",
+        analogy: "",
+        check_question: "",
+        check_answer: "",
+        mood: "happy",
+        mascot_line: "Good",
+      },
       misconception_id: null,
     });
-    component = flushSync(() => mount(Session, { target, props: { plan: { id: 1, title: "Quiz", steps: [{ kind: "quiz", conceptIds: [conceptId], count: 2 }] } } }));
+    component = flushSync(() =>
+      mount(Session, {
+        target,
+        props: { plan: { id: 1, title: "Quiz", steps: [{ kind: "quiz", conceptIds: [conceptId], count: 2 }] } },
+      }),
+    );
     await settle();
     target.querySelectorAll<HTMLButtonElement>(".opts button")[1].click();
     button("Ask Clawd").click();
@@ -99,9 +132,18 @@ describe("session quiz controls", () => {
 
   it("opens model, effort and attachment pickers without submitting a draft", async () => {
     const conceptId = store.concepts[0].id;
-    vi.spyOn(api, "makeQuiz").mockResolvedValue({ questions: [question(conceptId)], mood: "curious", mascot_line: "Quiz" });
+    vi.spyOn(api, "makeQuiz").mockResolvedValue({
+      questions: [question(conceptId)],
+      mood: "curious",
+      mascot_line: "Quiz",
+    });
     const ask = vi.spyOn(api, "askTutor").mockResolvedValue({ reply: "Reply", mood: "happy", mascot_line: "Hi" });
-    component = flushSync(() => mount(Session, { target, props: { plan: { id: 1, title: "Quiz", steps: [{ kind: "quiz", conceptIds: [conceptId], count: 1 }] } } }));
+    component = flushSync(() =>
+      mount(Session, {
+        target,
+        props: { plan: { id: 1, title: "Quiz", steps: [{ kind: "quiz", conceptIds: [conceptId], count: 1 }] } },
+      }),
+    );
     await settle();
     button("Ask Clawd").click();
     await settle();
@@ -124,7 +166,19 @@ describe("session quiz controls", () => {
 });
 
 describe("session explanations", () => {
-  const pass: FeynmanEval = { score: 100, passed: true, got_right: [], gaps: [], reteach: "Passed", analogy: "", next_prompt: "", note_issues: [], prerequisite_gap: "", mood: "celebrating", mascot_line: "Good" };
+  const pass: FeynmanEval = {
+    score: 100,
+    passed: true,
+    got_right: [],
+    gaps: [],
+    reteach: "Passed",
+    analogy: "",
+    next_prompt: "",
+    note_issues: [],
+    prerequisite_gap: "",
+    mood: "celebrating",
+    mascot_line: "Good",
+  };
 
   it("blocks prerequisite navigation during evaluation and allows it after the reply", async () => {
     const [advanced, foundation] = f.progress.data.concepts;
@@ -135,8 +189,17 @@ describe("session explanations", () => {
     await store.refresh();
     const failed = { ...pass, score: 20, passed: false, prerequisite_gap: "Foundation" };
     const pending = deferred<FeynmanEval>();
-    const evaluate = vi.spyOn(api, "evaluateExplanation").mockResolvedValueOnce(failed).mockReturnValueOnce(pending.promise).mockResolvedValueOnce(pass);
-    component = flushSync(() => mount(Session, { target, props: { plan: { id: 1, title: "Study", steps: [{ kind: "explain", conceptId: advanced.id }] } } }));
+    const evaluate = vi
+      .spyOn(api, "evaluateExplanation")
+      .mockResolvedValueOnce(failed)
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValueOnce(pass);
+    component = flushSync(() =>
+      mount(Session, {
+        target,
+        props: { plan: { id: 1, title: "Study", steps: [{ kind: "explain", conceptId: advanced.id }] } },
+      }),
+    );
     await settle();
     type(target.querySelector<HTMLTextAreaElement>("textarea")!, "First answer");
     button("Submit").click();
@@ -170,10 +233,20 @@ describe("session explanations", () => {
     f.progress.data.concepts[1].name = "Foundation";
     await store.refresh();
     const advanced = store.concepts[0].id;
-    vi.spyOn(api, "evaluateExplanation").mockResolvedValue({ ...pass, passed: false, score: 20, prerequisite_gap: "Foundation" });
+    vi.spyOn(api, "evaluateExplanation").mockResolvedValue({
+      ...pass,
+      passed: false,
+      score: 20,
+      prerequisite_gap: "Foundation",
+    });
     const pending = deferred<{ reply: string; mood: string; mascot_line: string }>();
     vi.spyOn(api, "askTutor").mockReturnValue(pending.promise);
-    component = flushSync(() => mount(Session, { target, props: { plan: { id: 1, title: "Study", steps: [{ kind: "explain", conceptId: advanced }] } } }));
+    component = flushSync(() =>
+      mount(Session, {
+        target,
+        props: { plan: { id: 1, title: "Study", steps: [{ kind: "explain", conceptId: advanced }] } },
+      }),
+    );
     await settle();
     type(target.querySelector<HTMLTextAreaElement>("textarea")!, "An answer");
     button("Submit").click();
@@ -195,9 +268,22 @@ describe("session explanations", () => {
   });
 
   it("marks the right result when a same-named concept passes on a retry", async () => {
-    vi.spyOn(api, "evaluateExplanation").mockResolvedValueOnce(pass)
-      .mockResolvedValueOnce({ ...pass, score: 20, passed: false }).mockResolvedValueOnce(pass);
-    component = flushSync(() => mount(Session, { target, props: { plan: { id: 1, title: "Two notes", steps: store.concepts.map((c) => ({ kind: "explain" as const, conceptId: c.id })) } } }));
+    vi.spyOn(api, "evaluateExplanation")
+      .mockResolvedValueOnce(pass)
+      .mockResolvedValueOnce({ ...pass, score: 20, passed: false })
+      .mockResolvedValueOnce(pass);
+    component = flushSync(() =>
+      mount(Session, {
+        target,
+        props: {
+          plan: {
+            id: 1,
+            title: "Two notes",
+            steps: store.concepts.map((c) => ({ kind: "explain" as const, conceptId: c.id })),
+          },
+        },
+      }),
+    );
     await settle();
     type(target.querySelector<HTMLTextAreaElement>("textarea")!, "First concept answer");
     button("Submit").click();
@@ -219,10 +305,23 @@ describe("session explanations", () => {
   });
 
   it("marks only the selected same-named concept as self-reported", async () => {
-    vi.spyOn(api, "evaluateExplanation").mockResolvedValueOnce(pass).mockResolvedValueOnce({ ...pass, score: 20, passed: false });
+    vi.spyOn(api, "evaluateExplanation")
+      .mockResolvedValueOnce(pass)
+      .mockResolvedValueOnce({ ...pass, score: 20, passed: false });
     const report = vi.spyOn(api, "selfReport").mockResolvedValue();
     const second = store.concepts[1].id;
-    component = flushSync(() => mount(Session, { target, props: { plan: { id: 1, title: "Two notes", steps: store.concepts.map((c) => ({ kind: "explain" as const, conceptId: c.id })) } } }));
+    component = flushSync(() =>
+      mount(Session, {
+        target,
+        props: {
+          plan: {
+            id: 1,
+            title: "Two notes",
+            steps: store.concepts.map((c) => ({ kind: "explain" as const, conceptId: c.id })),
+          },
+        },
+      }),
+    );
     await settle();
     type(target.querySelector<HTMLTextAreaElement>("textarea")!, "First answer");
     button("Submit").click();
@@ -244,7 +343,9 @@ describe("session explanations", () => {
 it("retries the failed manual read from the banner with automatic re-reading disabled", async () => {
   f.settings.autoIndex = false;
   f.progress.saveConcepts("a.md", "old-hash", [extracted()]);
-  const extract = vi.spyOn(tutor, "extractConcepts").mockRejectedValueOnce(new Error("Temporary failure"))
+  const extract = vi
+    .spyOn(tutor, "extractConcepts")
+    .mockRejectedValueOnce(new Error("Temporary failure"))
     .mockResolvedValueOnce({ concepts: [extracted()] });
   component = flushSync(() => mount(NavRail, { target }));
   expect(await store.indexOne("a.md")).toBe(false);
@@ -257,12 +358,23 @@ it("retries the failed manual read from the banner with automatic re-reading dis
 });
 
 describe("Teach lesson resets", () => {
-  const reply: TeachReply = { reply: "Old topic reply", stage: "teaching", progress: 25, step_title: "First step", summary: "", mood: "curious", mascot_line: "Let's learn" };
+  const reply: TeachReply = {
+    reply: "Old topic reply",
+    stage: "teaching",
+    progress: 25,
+    step_title: "First step",
+    summary: "",
+    mood: "curious",
+    mascot_line: "Let's learn",
+  };
 
   it("prevents resetting during a reply, then starts the replacement topic normally", async () => {
     vi.spyOn(api, "relevantNotes").mockResolvedValue([]);
     const pending = deferred<TeachReply>();
-    const teach = vi.spyOn(api, "teach").mockReturnValueOnce(pending.promise).mockResolvedValueOnce({ ...reply, reply: "New topic reply" });
+    const teach = vi
+      .spyOn(api, "teach")
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValueOnce({ ...reply, reply: "New topic reply" });
     component = flushSync(() => mount(Teach, { target }));
     type(target.querySelector<HTMLTextAreaElement>("textarea")!, "Old topic");
     button("Teach me").click();
@@ -331,7 +443,19 @@ describe("Teach lesson resets", () => {
 });
 
 describe("session safety and composer", () => {
-  const fail: FeynmanEval = { score: 20, passed: false, got_right: [], gaps: [], reteach: "Again", analogy: "", next_prompt: "", note_issues: [], prerequisite_gap: "", mood: "encouraging", mascot_line: "Try again" };
+  const fail: FeynmanEval = {
+    score: 20,
+    passed: false,
+    got_right: [],
+    gaps: [],
+    reteach: "Again",
+    analogy: "",
+    next_prompt: "",
+    note_issues: [],
+    prerequisite_gap: "",
+    mood: "encouraging",
+    mascot_line: "Try again",
+  };
 
   it("asks before replacing a session in progress, and can add the concept to it instead", async () => {
     const [first, second] = store.concepts;
@@ -381,7 +505,12 @@ describe("session safety and composer", () => {
 
   it("sends on Enter, adds a line on Shift+Enter", async () => {
     const evaluate = vi.spyOn(api, "evaluateExplanation").mockResolvedValue(fail);
-    component = flushSync(() => mount(Session, { target, props: { plan: { id: 1, title: "S", steps: [{ kind: "explain", conceptId: store.concepts[0].id }] } } }));
+    component = flushSync(() =>
+      mount(Session, {
+        target,
+        props: { plan: { id: 1, title: "S", steps: [{ kind: "explain", conceptId: store.concepts[0].id }] } },
+      }),
+    );
     await settle();
     const box = target.querySelector<HTMLTextAreaElement>("textarea")!;
     type(box, "Line one");
@@ -397,9 +526,16 @@ describe("session safety and composer", () => {
     let signal: AbortSignal | undefined;
     vi.spyOn(api, "evaluateExplanation").mockImplementation((a) => {
       signal = a.signal;
-      return new Promise((_, reject) => a.signal?.addEventListener("abort", () => reject(new Error("Claude request cancelled."))));
+      return new Promise((_, reject) =>
+        a.signal?.addEventListener("abort", () => reject(new Error("Claude request cancelled."))),
+      );
     });
-    component = flushSync(() => mount(Session, { target, props: { plan: { id: 1, title: "S", steps: [{ kind: "explain", conceptId: store.concepts[0].id }] } } }));
+    component = flushSync(() =>
+      mount(Session, {
+        target,
+        props: { plan: { id: 1, title: "S", steps: [{ kind: "explain", conceptId: store.concepts[0].id }] } },
+      }),
+    );
     await settle();
     type(target.querySelector<HTMLTextAreaElement>("textarea")!, "My careful explanation");
     button("Submit").click();
@@ -426,9 +562,16 @@ describe("follow-ups", () => {
   it("doesn't read anything after setup until you pick notes", async () => {
     store.dispose();
     const g = fixture(["a.md", "b.md", "c.md"]);
-    store.init(g.backend, () => g.settings, async () => {});
+    store.init(
+      g.backend,
+      () => g.settings,
+      async () => {},
+    );
     await store.refresh();
-    const read = vi.spyOn(api, "indexNote").mockImplementation(async () => ({ ...store.snap!, notes: store.snap!.notes.map((n) => ({ ...n, stale: false })) }));
+    const read = vi.spyOn(api, "indexNote").mockImplementation(async () => ({
+      ...store.snap!,
+      notes: store.snap!.notes.map((n) => ({ ...n, stale: false })),
+    }));
     await store.configure(["/"]);
     await store.indexAll();
     expect(read).not.toHaveBeenCalled();
@@ -438,9 +581,26 @@ describe("follow-ups", () => {
   });
 
   it("pins Clawd's follow-up above the composer and sends it to the grader", async () => {
-    const fail: FeynmanEval = { score: 40, passed: false, got_right: [], gaps: [], reteach: "", analogy: "", next_prompt: "Now explain why it matters.", note_issues: [], prerequisite_gap: "", mood: "encouraging", mascot_line: "" };
+    const fail: FeynmanEval = {
+      score: 40,
+      passed: false,
+      got_right: [],
+      gaps: [],
+      reteach: "",
+      analogy: "",
+      next_prompt: "Now explain why it matters.",
+      note_issues: [],
+      prerequisite_gap: "",
+      mood: "encouraging",
+      mascot_line: "",
+    };
     const evaluate = vi.spyOn(api, "evaluateExplanation").mockResolvedValue(fail);
-    component = flushSync(() => mount(Session, { target, props: { plan: { id: 1, title: "S", steps: [{ kind: "explain", conceptId: store.concepts[0].id }] } } }));
+    component = flushSync(() =>
+      mount(Session, {
+        target,
+        props: { plan: { id: 1, title: "S", steps: [{ kind: "explain", conceptId: store.concepts[0].id }] } },
+      }),
+    );
     await settle();
     expect(target.querySelector(".turn")).toBeNull();
     type(target.querySelector<HTMLTextAreaElement>("textarea")!, "First go");
@@ -471,7 +631,12 @@ describe("follow-ups", () => {
   });
 
   it("keeps the model and effort switches under the entry box for narrow panes", async () => {
-    component = flushSync(() => mount(Session, { target, props: { plan: { id: 1, title: "S", steps: [{ kind: "explain", conceptId: store.concepts[0].id }] } } }));
+    component = flushSync(() =>
+      mount(Session, {
+        target,
+        props: { plan: { id: 1, title: "S", steps: [{ kind: "explain", conceptId: store.concepts[0].id }] } },
+      }),
+    );
     await settle();
     const row = target.querySelector(".composer .model-row");
     const pick = row?.querySelector<HTMLButtonElement>("button.pick.model");
@@ -480,7 +645,11 @@ describe("follow-ups", () => {
     await settle();
     const pop = target.ownerDocument.querySelector(".ct-model-pop");
     // Only the models chosen in settings, in that order.
-    expect([...pop!.querySelectorAll("[role=option]")].map((b) => b.textContent?.trim())).toEqual(["Opus 5.5", "Sonnet 5.5", "Haiku 5.5"]);
+    expect([...pop!.querySelectorAll("[role=option]")].map((b) => b.textContent?.trim())).toEqual([
+      "Opus 5.5",
+      "Sonnet 5.5",
+      "Haiku 5.5",
+    ]);
     expect(pop?.querySelector("[role=slider]")).not.toBeNull();
   });
 });
@@ -519,7 +688,9 @@ describe("model picker", () => {
     await settle();
     const outer = vi.fn();
     document.addEventListener("keydown", outer);
-    document.querySelector<HTMLButtonElement>(".ct-model-pop .row")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    document
+      .querySelector<HTMLButtonElement>(".ct-model-pop .row")!
+      .dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await settle();
     document.removeEventListener("keydown", outer);
     expect(document.querySelector(".ct-model-pop")).toBeNull();
@@ -531,7 +702,17 @@ describe("model picker", () => {
     const btn = target.querySelector<HTMLButtonElement>("button.pick")!;
     // Near the bottom of the window, as under the entry box: it opens upward.
     const top = window.innerHeight - 40;
-    vi.spyOn(btn, "getBoundingClientRect").mockReturnValue({ top, bottom: top + 26, left: 10, right: 120, width: 110, height: 26, x: 10, y: top, toJSON() {} });
+    vi.spyOn(btn, "getBoundingClientRect").mockReturnValue({
+      top,
+      bottom: top + 26,
+      left: 10,
+      right: 120,
+      width: 110,
+      height: 26,
+      x: 10,
+      y: top,
+      toJSON() {},
+    });
     btn.click();
     await settle();
     expect(document.querySelector<HTMLElement>(".ct-model-pop")!.style.maxHeight).toBe(`${top - 14}px`);
@@ -541,7 +722,17 @@ describe("model picker", () => {
     vi.spyOn(window, "innerHeight", "get").mockReturnValue(120);
     component = flushSync(() => mount(ModelPicker, { target }));
     const btn = target.querySelector<HTMLButtonElement>("button.pick")!;
-    vi.spyOn(btn, "getBoundingClientRect").mockReturnValue({ top: 90, bottom: 116, left: 10, right: 120, width: 110, height: 26, x: 10, y: 90, toJSON() {} });
+    vi.spyOn(btn, "getBoundingClientRect").mockReturnValue({
+      top: 90,
+      bottom: 116,
+      left: 10,
+      right: 120,
+      width: 110,
+      height: 26,
+      x: 10,
+      y: 90,
+      toJSON() {},
+    });
     btn.click();
     await settle();
     const pop = document.querySelector<HTMLElement>(".ct-model-pop")!;
@@ -555,15 +746,33 @@ describe("model picker", () => {
 
 describe("attachments and retries", () => {
   let ids = 1000;
-  const img = (url: string): images.Img => ({ id: ids++, url, mediaType: "image/png", data: "eA==", name: `${url}.png` });
+  const img = (url: string): images.Img => ({
+    id: ids++,
+    url,
+    mediaType: "image/png",
+    data: "eA==",
+    name: `${url}.png`,
+  });
   function paste(el: Element, name = "work.png") {
     const e = new Event("paste", { bubbles: true, cancelable: true });
-    Object.defineProperty(e, "clipboardData", { value: { files: [new File(["x"], name, { type: "image/png" })], items: [] } });
+    Object.defineProperty(e, "clipboardData", {
+      value: { files: [new File(["x"], name, { type: "image/png" })], items: [] },
+    });
     el.dispatchEvent(e);
   }
-  const reply: TeachReply = { reply: "First reply", stage: "teaching", progress: 25, step_title: "Step", summary: "", mood: "curious", mascot_line: "Go" };
+  const reply: TeachReply = {
+    reply: "First reply",
+    stage: "teaching",
+    progress: 25,
+    step_title: "Step",
+    summary: "",
+    mood: "curious",
+    mascot_line: "Go",
+  };
   const cancellable = (a: { signal?: AbortSignal } | undefined, signal?: AbortSignal) =>
-    new Promise<never>((_, reject) => (a?.signal ?? signal)?.addEventListener("abort", () => reject(new Error("Codex request cancelled."))));
+    new Promise<never>((_, reject) =>
+      (a?.signal ?? signal)?.addEventListener("abort", () => reject(new Error("Codex request cancelled."))),
+    );
 
   it("waits for an image being prepared before starting a lesson", async () => {
     const relevant = vi.spyOn(api, "relevantNotes").mockResolvedValue([]);
@@ -576,7 +785,9 @@ describe("attachments and retries", () => {
     await settle();
     expect(target.textContent).toContain("Preparing image…");
     expect(button("Teach me").disabled).toBe(true);
-    target.querySelector("textarea")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    target
+      .querySelector("textarea")!
+      .dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
     await settle();
     expect(relevant).not.toHaveBeenCalled();
     prepared.resolve(img("ready"));
@@ -588,15 +799,37 @@ describe("attachments and retries", () => {
   it("doesn't carry unsent images into the next quiz question", async () => {
     const conceptId = store.concepts.find((c) => c.note_path === "b.md")!.id;
     const q = question(conceptId);
-    vi.spyOn(api, "makeQuiz").mockResolvedValue({ questions: [q, { ...q, question: "Second question?" }], mood: "curious", mascot_line: "Quiz" });
+    vi.spyOn(api, "makeQuiz").mockResolvedValue({
+      questions: [q, { ...q, question: "Second question?" }],
+      mood: "curious",
+      mascot_line: "Quiz",
+    });
     vi.spyOn(api, "gradeAnswer").mockResolvedValue({
-      grade: { correct: true, score: 100, feedback: "Yes", misconception: "", misconception_id: null, prerequisite_gap: "", lesson: "", analogy: "", check_question: "", check_answer: "", mood: "happy", mascot_line: "Good" },
+      grade: {
+        correct: true,
+        score: 100,
+        feedback: "Yes",
+        misconception: "",
+        misconception_id: null,
+        prerequisite_gap: "",
+        lesson: "",
+        analogy: "",
+        check_question: "",
+        check_answer: "",
+        mood: "happy",
+        mascot_line: "Good",
+      },
       misconception_id: null,
     });
     const ask = vi.spyOn(api, "askTutor").mockResolvedValue({ reply: "Sure", mood: "happy", mascot_line: "" });
     const prepared = deferred<images.Img>();
     vi.spyOn(images, "prepareImage").mockResolvedValueOnce(img("old")).mockReturnValueOnce(prepared.promise);
-    component = flushSync(() => mount(Session, { target, props: { plan: { id: 1, title: "Quiz", steps: [{ kind: "quiz", conceptIds: [conceptId], count: 2 }] } } }));
+    component = flushSync(() =>
+      mount(Session, {
+        target,
+        props: { plan: { id: 1, title: "Quiz", steps: [{ kind: "quiz", conceptIds: [conceptId], count: 2 }] } },
+      }),
+    );
     await settle();
     button("Ask Clawd").click();
     await settle();
@@ -649,7 +882,12 @@ describe("attachments and retries", () => {
   it("keeps an image being prepared when switching between Answer and Ask Clawd", async () => {
     const prepared = deferred<images.Img>();
     vi.spyOn(images, "prepareImage").mockReturnValueOnce(prepared.promise);
-    component = flushSync(() => mount(Session, { target, props: { plan: { id: 1, title: "S", steps: [{ kind: "explain", conceptId: store.concepts[0].id }] } } }));
+    component = flushSync(() =>
+      mount(Session, {
+        target,
+        props: { plan: { id: 1, title: "S", steps: [{ kind: "explain", conceptId: store.concepts[0].id }] } },
+      }),
+    );
     await settle();
     paste(target.querySelector(".ct-composer")!);
     await settle();
@@ -661,14 +899,39 @@ describe("attachments and retries", () => {
     expect([...target.querySelectorAll(".ask .thumbs img")].map((i) => i.getAttribute("src"))).toEqual(["work"]);
     button("Answer").click();
     await settle();
-    expect([...target.querySelectorAll(".ct-composer .thumbs img")].map((i) => i.getAttribute("src"))).toEqual(["work"]);
+    expect([...target.querySelectorAll(".ct-composer .thumbs img")].map((i) => i.getAttribute("src"))).toEqual([
+      "work",
+    ]);
   });
 
   it("doesn't carry unsent images into the next concept", async () => {
-    const evaluate = vi.spyOn(api, "evaluateExplanation").mockResolvedValue({ score: 90, passed: true, got_right: [], gaps: [], reteach: "", analogy: "", next_prompt: "", note_issues: [], prerequisite_gap: "", mood: "proud", mascot_line: "" });
+    const evaluate = vi.spyOn(api, "evaluateExplanation").mockResolvedValue({
+      score: 90,
+      passed: true,
+      got_right: [],
+      gaps: [],
+      reteach: "",
+      analogy: "",
+      next_prompt: "",
+      note_issues: [],
+      prerequisite_gap: "",
+      mood: "proud",
+      mascot_line: "",
+    });
     const prepared = deferred<images.Img>();
     vi.spyOn(images, "prepareImage").mockResolvedValueOnce(img("first")).mockReturnValueOnce(prepared.promise);
-    component = flushSync(() => mount(Session, { target, props: { plan: { id: 1, title: "Two", steps: store.concepts.map((c) => ({ kind: "explain" as const, conceptId: c.id })) } } }));
+    component = flushSync(() =>
+      mount(Session, {
+        target,
+        props: {
+          plan: {
+            id: 1,
+            title: "Two",
+            steps: store.concepts.map((c) => ({ kind: "explain" as const, conceptId: c.id })),
+          },
+        },
+      }),
+    );
     await settle();
     paste(target.querySelector(".ct-composer")!, "first.png");
     paste(target.querySelector(".ct-composer")!, "pending.png");
@@ -689,7 +952,9 @@ describe("attachments and retries", () => {
 
   it("keeps an image attached while a cancelled lesson message was sending", async () => {
     vi.spyOn(api, "relevantNotes").mockResolvedValue([]);
-    vi.spyOn(api, "teach").mockResolvedValueOnce(reply).mockImplementationOnce((_t, _s, _h, _m, _i, signal) => cancellable(undefined, signal));
+    vi.spyOn(api, "teach")
+      .mockResolvedValueOnce(reply)
+      .mockImplementationOnce((_t, _s, _h, _m, _i, signal) => cancellable(undefined, signal));
     vi.spyOn(images, "prepareImage").mockResolvedValueOnce(img("sent")).mockResolvedValueOnce(img("added"));
     component = flushSync(() => mount(Teach, { target }));
     type(target.querySelector<HTMLTextAreaElement>("textarea")!, "Topic");
@@ -704,15 +969,38 @@ describe("attachments and retries", () => {
     await settle();
     button("Cancel").click();
     await settle();
-    expect([...target.querySelectorAll(".ct-composer .thumbs img")].map((i) => i.getAttribute("src"))).toEqual(["sent", "added"]);
+    expect([...target.querySelectorAll(".ct-composer .thumbs img")].map((i) => i.getAttribute("src"))).toEqual([
+      "sent",
+      "added",
+    ]);
     expect(target.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("My question");
   });
 
   it("never re-runs an old failed explanation while a newer one is being graded", async () => {
-    const fail: FeynmanEval = { score: 20, passed: false, got_right: [], gaps: [], reteach: "Again", analogy: "", next_prompt: "", note_issues: [], prerequisite_gap: "", mood: "encouraging", mascot_line: "Try again" };
+    const fail: FeynmanEval = {
+      score: 20,
+      passed: false,
+      got_right: [],
+      gaps: [],
+      reteach: "Again",
+      analogy: "",
+      next_prompt: "",
+      note_issues: [],
+      prerequisite_gap: "",
+      mood: "encouraging",
+      mascot_line: "Try again",
+    };
     const second = deferred<FeynmanEval>();
-    const evaluate = vi.spyOn(api, "evaluateExplanation").mockRejectedValueOnce(new Error("network down")).mockReturnValueOnce(second.promise);
-    component = flushSync(() => mount(Session, { target, props: { plan: { id: 1, title: "S", steps: [{ kind: "explain", conceptId: store.concepts[0].id }] } } }));
+    const evaluate = vi
+      .spyOn(api, "evaluateExplanation")
+      .mockRejectedValueOnce(new Error("network down"))
+      .mockReturnValueOnce(second.promise);
+    component = flushSync(() =>
+      mount(Session, {
+        target,
+        props: { plan: { id: 1, title: "S", steps: [{ kind: "explain", conceptId: store.concepts[0].id }] } },
+      }),
+    );
     await settle();
     type(target.querySelector<HTMLTextAreaElement>("textarea")!, "First try");
     button("Submit").click();
@@ -733,7 +1021,8 @@ describe("attachments and retries", () => {
 });
 
 describe("model list keyboard and search", () => {
-  const key = (el: Element, k: string) => el.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
+  const key = (el: Element, k: string) =>
+    el.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
   const options = (root: ParentNode) => [...root.querySelectorAll<HTMLElement>("[role=option]")];
 
   it("is a list you can move through with the arrow keys and pick from with Enter", async () => {
@@ -745,7 +1034,11 @@ describe("model list keyboard and search", () => {
     const list = document.querySelector<HTMLElement>("[role=listbox]")!;
     expect(document.activeElement).toBe(list);
     expect(document.querySelector(".ct-model-pop input")).toBeNull(); // few models: no search box
-    expect(options(list).map((o) => [o.textContent?.trim(), o.getAttribute("aria-selected")])).toEqual([["Opus 5.5", "true"], ["Sonnet 5.5", "false"], ["Haiku 5.5", "false"]]);
+    expect(options(list).map((o) => [o.textContent?.trim(), o.getAttribute("aria-selected")])).toEqual([
+      ["Opus 5.5", "true"],
+      ["Sonnet 5.5", "false"],
+      ["Haiku 5.5", "false"],
+    ]);
     // The highlight starts on the current model and moves without changing it.
     expect(list.getAttribute("aria-activedescendant")).toBe(options(list)[0].id);
     key(list, "ArrowDown");
@@ -763,7 +1056,16 @@ describe("model list keyboard and search", () => {
   });
 
   it("leaves Enter and Esc to an input method that is composing text", async () => {
-    f.settings.models = ["opus", "sonnet", "haiku", "fable", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6"].map((id) => ({ provider: "claude" as const, id, alias: "" }));
+    f.settings.models = [
+      "opus",
+      "sonnet",
+      "haiku",
+      "fable",
+      "claude-opus-4-8",
+      "claude-opus-4-7",
+      "claude-opus-4-6",
+      "claude-sonnet-4-6",
+    ].map((id) => ({ provider: "claude" as const, id, alias: "" }));
     f.settings.model = "opus";
     await store.refresh();
     component = flushSync(() => mount(ModelPicker, { target }));
@@ -772,8 +1074,12 @@ describe("model list keyboard and search", () => {
     const search = document.querySelector<HTMLInputElement>(".ct-model-pop input")!;
     key(search, "ArrowDown");
     // Confirming or cancelling composed text.
-    search.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true, cancelable: true }));
-    search.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", isComposing: true, bubbles: true, cancelable: true }));
+    search.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true, cancelable: true }),
+    );
+    search.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", isComposing: true, bubbles: true, cancelable: true }),
+    );
     await settle();
     expect(f.settings.model).toBe("opus");
     expect(document.querySelector(".ct-model-pop")).not.toBeNull();
@@ -784,7 +1090,11 @@ describe("model list keyboard and search", () => {
 
   it("adds a search box for a long list, filtering by name or id", async () => {
     f.settings.models = [
-      ...["opus", "sonnet", "haiku", "fable", "claude-opus-4-8"].map((id) => ({ provider: "claude" as const, id, alias: "" })),
+      ...["opus", "sonnet", "haiku", "fable", "claude-opus-4-8"].map((id) => ({
+        provider: "claude" as const,
+        id,
+        alias: "",
+      })),
       ...["gpt-6-sol", "gpt-6-luna", "gpt-5.6-luna"].map((id) => ({ provider: "codex" as const, id, alias: "" })),
     ];
     await store.refresh();
@@ -825,9 +1135,20 @@ describe("model list keyboard and search", () => {
 describe("Teach topic draft", () => {
   it("keeps the unsent topic when the view closes, and forgets it once the lesson starts", async () => {
     const storage = new Map<string, unknown>();
-    Object.assign(f.app, { loadLocalStorage: (k: string) => storage.get(k) ?? null, saveLocalStorage: (k: string, v: unknown) => (v === null ? storage.delete(k) : storage.set(k, v)) });
+    Object.assign(f.app, {
+      loadLocalStorage: (k: string) => storage.get(k) ?? null,
+      saveLocalStorage: (k: string, v: unknown) => (v === null ? storage.delete(k) : storage.set(k, v)),
+    });
     vi.spyOn(api, "relevantNotes").mockResolvedValue([]);
-    vi.spyOn(api, "teach").mockResolvedValue({ reply: "Hi", stage: "teaching", progress: 10, step_title: "", summary: "", mood: "curious", mascot_line: "" });
+    vi.spyOn(api, "teach").mockResolvedValue({
+      reply: "Hi",
+      stage: "teaching",
+      progress: 10,
+      step_title: "",
+      summary: "",
+      mood: "curious",
+      mascot_line: "",
+    });
     component = flushSync(() => mount(Teach, { target }));
     type(target.querySelector<HTMLTextAreaElement>("textarea")!, "How do eigenvalues work");
     await settle();
@@ -846,7 +1167,10 @@ describe("Teach topic draft", () => {
 
 describe("Clawd", () => {
   it("is named without an aria-label, which would give it Obsidian's HTML-only tooltip", () => {
-    for (const [props, name] of [[{ mood: "happy" }, "Clawd is happy"], [{ mood: "idle", onpoke: () => {} }, "Poke Clawd"]] as const) {
+    for (const [props, name] of [
+      [{ mood: "happy" }, "Clawd is happy"],
+      [{ mood: "idle", onpoke: () => {} }, "Poke Clawd"],
+    ] as const) {
       const target = document.body.appendChild(document.createElement("div"));
       const cmp = mount(Clawd, { target, props });
       flushSync();
@@ -874,14 +1198,38 @@ describe("Clawd", () => {
 describe("Ask Clawd history", () => {
   it("drops turns about a removed note once, then remembers new ones", async () => {
     const [a, b] = ["a.md", "b.md"].map((k) => store.concepts.find((c) => c.note_path === k)!.id);
-    vi.spyOn(api, "makeQuiz").mockResolvedValue({ questions: [question(a), { ...question(b), question: "About b?" }], mood: "curious", mascot_line: "Quiz" });
+    vi.spyOn(api, "makeQuiz").mockResolvedValue({
+      questions: [question(a), { ...question(b), question: "About b?" }],
+      mood: "curious",
+      mascot_line: "Quiz",
+    });
     vi.spyOn(api, "gradeAnswer").mockResolvedValue({
-      grade: { correct: true, score: 100, feedback: "Yes", misconception: "", misconception_id: null, prerequisite_gap: "", lesson: "", analogy: "", check_question: "", check_answer: "", mood: "happy", mascot_line: "Good" },
+      grade: {
+        correct: true,
+        score: 100,
+        feedback: "Yes",
+        misconception: "",
+        misconception_id: null,
+        prerequisite_gap: "",
+        lesson: "",
+        analogy: "",
+        check_question: "",
+        check_answer: "",
+        mood: "happy",
+        mascot_line: "Good",
+      },
       misconception_id: null,
     });
     const replies = ["a's note says the secret is…", "Think of an apple.", "The apple was the idea."];
-    const ask = vi.spyOn(api, "askTutor").mockImplementation(async () => ({ reply: replies.shift()!, mood: "happy", mascot_line: "" }));
-    component = flushSync(() => mount(Session, { target, props: { plan: { id: 1, title: "Quiz", steps: [{ kind: "quiz", conceptIds: [a, b], count: 2 }] } } }));
+    const ask = vi
+      .spyOn(api, "askTutor")
+      .mockImplementation(async () => ({ reply: replies.shift()!, mood: "happy", mascot_line: "" }));
+    component = flushSync(() =>
+      mount(Session, {
+        target,
+        props: { plan: { id: 1, title: "Quiz", steps: [{ kind: "quiz", conceptIds: [a, b], count: 2 }] } },
+      }),
+    );
     await settle();
     const send = async (text: string) => {
       button("Ask Clawd").click();

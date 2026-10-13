@@ -9,7 +9,8 @@ import { ConceptPicker, FolderPicker, NotePicker } from "./pickers";
 
 export { isDue, isNew };
 
-export type View = { name: "today" } | { name: "session" } | { name: "teach" } | { name: "mistakes" } | { name: "library" };
+export type View =
+  { name: "today" } | { name: "session" } | { name: "teach" } | { name: "mistakes" } | { name: "library" };
 export type Step = { kind: "explain"; conceptId: number } | { kind: "quiz"; conceptIds: number[]; count: number };
 export interface Plan {
   id: number;
@@ -374,24 +375,31 @@ export class Store {
 
   /** Pick a note or PDF from the vault and add it on its own. */
   pickNote() {
-    new NotePicker(obsidianApp(), (p) => api.inLibrary(p), async (file) => {
-      const keys = await api.addFile(file.path);
-      if (!keys.length) {
-        this.error = `Couldn't read ${file.name}: ${api.skippedReason(file.path) ?? "no text found"}`;
-        return;
-      }
-      this.say("curious", `Added “${file.basename}”. Let me read it…`);
-      new Notice(`Claude Tutor: added ${file.name}`);
-      // You picked this one note, so reading it is what you asked for.
-      await this.readSelected(keys);
-    }).open();
+    new NotePicker(
+      obsidianApp(),
+      (p) => api.inLibrary(p),
+      async (file) => {
+        const keys = await api.addFile(file.path);
+        if (!keys.length) {
+          this.error = `Couldn't read ${file.name}: ${api.skippedReason(file.path) ?? "no text found"}`;
+          return;
+        }
+        this.say("curious", `Added “${file.basename}”. Let me read it…`);
+        new Notice(`Claude Tutor: added ${file.name}`);
+        // You picked this one note, so reading it is what you asked for.
+        await this.readSelected(keys);
+      },
+    ).open();
   }
 
   pickFolder() {
     new FolderPicker(obsidianApp(), async (folder) => {
       const path = folder.isRoot() ? "/" : folder.path;
       await api.addFolder(path);
-      this.say("curious", `Added ${path === "/" ? "the whole vault" : `“${folder.name}”`}. Pick the notes you want me to read.`);
+      this.say(
+        "curious",
+        `Added ${path === "/" ? "the whole vault" : `“${folder.name}”`}. Pick the notes you want me to read.`,
+      );
     }).open();
   }
 
@@ -509,7 +517,12 @@ export class Store {
       return;
     }
     const title = this.note(keys[0])?.title.replace(/ · pp?\..*$/, "") ?? "note";
-    if (mode === "quiz") this.startQuiz(`Quiz: ${title}`, concepts.map((c) => c.id), this.settings().quizQuestions || 5);
+    if (mode === "quiz")
+      this.startQuiz(
+        `Quiz: ${title}`,
+        concepts.map((c) => c.id),
+        this.settings().quizQuestions || 5,
+      );
     else {
       const next = concepts.find((c) => isDue(c)) ?? [...concepts].sort((a, b) => a.mastery - b.mastery)[0];
       this.startExplain(next.id);
@@ -614,11 +627,19 @@ export class Store {
 
   /** Search all concepts and explain the chosen one. */
   pickConcept() {
-    new ConceptPicker(obsidianApp(), this.concepts, (k) => this.noteTitle(k), (c) => this.startExplain(c.id)).open();
+    new ConceptPicker(
+      obsidianApp(),
+      this.concepts,
+      (k) => this.noteTitle(k),
+      (c) => this.startExplain(c.id),
+    ).open();
   }
 
   startQuiz(title: string, conceptIds: number[], count = 5) {
-    void this.start(title, conceptIds.length ? [{ kind: "quiz", conceptIds: shuffle(conceptIds).slice(0, 8), count }] : []);
+    void this.start(
+      title,
+      conceptIds.length ? [{ kind: "quiz", conceptIds: shuffle(conceptIds).slice(0, 8), count }] : [],
+    );
   }
 
   quickQuiz() {
@@ -632,7 +653,11 @@ export class Store {
   }
 
   noteQuiz(key: string) {
-    this.startQuiz(`Quiz: ${this.note(key)?.title ?? "note"}`, this.concepts.filter((c) => c.note_path === key).map((c) => c.id), 5);
+    this.startQuiz(
+      `Quiz: ${this.note(key)?.title ?? "note"}`,
+      this.concepts.filter((c) => c.note_path === key).map((c) => c.id),
+      5,
+    );
   }
 
   concept(id: number) {

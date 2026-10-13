@@ -4,12 +4,20 @@ import { Store } from "../src/ui/lib/store.svelte";
 import { deferred, extracted, fixture } from "./helpers";
 
 let state: Store;
-afterEach(() => { state?.dispose(); vi.restoreAllMocks(); vi.useRealTimers(); });
+afterEach(() => {
+  state?.dispose();
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
 
 async function setup(paths?: string[]) {
   const f = fixture(paths);
   state = new Store();
-  state.init(f.backend, () => f.settings, async () => {});
+  state.init(
+    f.backend,
+    () => f.settings,
+    async () => {},
+  );
   await state.refresh();
   return f;
 }
@@ -21,7 +29,8 @@ describe("requested note reads", () => {
     f.progress.saveConcepts("b.md", "old-hash", [extracted("Old idea")]);
     await state.refresh();
     const first = deferred<{ concepts: ReturnType<typeof extracted>[] }>();
-    const extract = vi.spyOn(tutor, "extractConcepts")
+    const extract = vi
+      .spyOn(tutor, "extractConcepts")
       .mockReturnValueOnce(first.promise)
       .mockResolvedValueOnce({ concepts: [extracted("Requested idea")] });
     const bulk = state.readSelected(["a.md"]);
@@ -40,7 +49,8 @@ describe("requested note reads", () => {
   it("awaits a note already in the bulk queue without reading it twice", async () => {
     const f = await setup();
     const first = deferred<{ concepts: ReturnType<typeof extracted>[] }>();
-    const extract = vi.spyOn(tutor, "extractConcepts")
+    const extract = vi
+      .spyOn(tutor, "extractConcepts")
       .mockReturnValueOnce(first.promise)
       .mockResolvedValueOnce({ concepts: [extracted("B idea")] });
     const bulk = state.readSelected(["a.md", "b.md"]);
@@ -48,7 +58,9 @@ describe("requested note reads", () => {
     first.resolve({ concepts: [extracted("A idea")] });
     await Promise.all([bulk, study]);
     expect(extract).toHaveBeenCalledTimes(2);
-    expect(state.plan?.steps).toEqual([{ kind: "explain", conceptId: f.progress.data.concepts.find((c) => c.note_path === "b.md")!.id }]);
+    expect(state.plan?.steps).toEqual([
+      { kind: "explain", conceptId: f.progress.data.concepts.find((c) => c.note_path === "b.md")!.id },
+    ]);
   });
 
   it("clears a failed attempt's error before a successful single-note retry", async () => {
@@ -68,7 +80,12 @@ describe("requested note reads", () => {
     const f = await setup(["a.md"]);
     const pending = deferred<{ concepts: ReturnType<typeof extracted>[] }>();
     const started = deferred<void>();
-    const extract = vi.spyOn(tutor, "extractConcepts").mockImplementationOnce(() => { started.resolve(); return pending.promise; })
+    const extract = vi
+      .spyOn(tutor, "extractConcepts")
+      .mockImplementationOnce(() => {
+        started.resolve();
+        return pending.promise;
+      })
       .mockResolvedValueOnce({ concepts: [extracted("Current idea")] });
     const studying = state.studyNote(["a.md"], "quiz");
     await started.promise;
@@ -87,7 +104,12 @@ describe("requested note reads", () => {
     const f = await setup(["a.md"]);
     const extractedOld = deferred<{ concepts: ReturnType<typeof extracted>[] }>();
     const started = deferred<void>();
-    const extract = vi.spyOn(tutor, "extractConcepts").mockImplementationOnce(() => { started.resolve(); return extractedOld.promise; })
+    const extract = vi
+      .spyOn(tutor, "extractConcepts")
+      .mockImplementationOnce(() => {
+        started.resolve();
+        return extractedOld.promise;
+      })
       .mockResolvedValueOnce({ concepts: [extracted("Current idea")] });
     const reading = state.studyNote(["a.md"], "quiz");
     await started.promise;
@@ -128,7 +150,10 @@ describe("requested note reads", () => {
     f.progress.saveConcepts("a.md", "old-hash", [extracted("Old idea")]);
     const started = deferred<void>();
     const pending = deferred<{ concepts: ReturnType<typeof extracted>[] }>();
-    vi.spyOn(tutor, "extractConcepts").mockImplementation(() => { started.resolve(); return pending.promise; });
+    vi.spyOn(tutor, "extractConcepts").mockImplementation(() => {
+      started.resolve();
+      return pending.promise;
+    });
     const studying = state.studyNote(["a.md"], "quiz");
     await started.promise;
     f.files.splice(0);
@@ -159,7 +184,9 @@ describe("requested note reads", () => {
     const f = await setup(["a.md"]);
     f.settings.autoIndex = false;
     f.progress.saveConcepts("a.md", "old-hash", [extracted()]);
-    const extract = vi.spyOn(tutor, "extractConcepts").mockRejectedValueOnce(new Error("Temporary failure"))
+    const extract = vi
+      .spyOn(tutor, "extractConcepts")
+      .mockRejectedValueOnce(new Error("Temporary failure"))
       .mockResolvedValueOnce({ concepts: [extracted()] });
     expect(await state.indexOne("a.md")).toBe(false);
     await state.retryIndexing();
@@ -171,8 +198,11 @@ describe("requested note reads", () => {
 
   it("retains the failed note when retry fails again, and resumes the remaining bulk queue on success", async () => {
     await setup();
-    const extract = vi.spyOn(tutor, "extractConcepts").mockRejectedValueOnce(new Error("First failure"))
-      .mockRejectedValueOnce(new Error("Second failure")).mockResolvedValue({ concepts: [extracted()] });
+    const extract = vi
+      .spyOn(tutor, "extractConcepts")
+      .mockRejectedValueOnce(new Error("First failure"))
+      .mockRejectedValueOnce(new Error("Second failure"))
+      .mockResolvedValue({ concepts: [extracted()] });
     await state.readSelected(["a.md", "b.md"]);
     await state.retryIndexing();
     expect(state.indexError).toBe("Second failure");
@@ -220,7 +250,10 @@ describe("study command ordering", () => {
     f.progress.saveConcepts("b.md", "hash:b.md", [extracted("Already read")]);
     const pending = deferred<{ concepts: ReturnType<typeof extracted>[] }>();
     const started = deferred<void>();
-    vi.spyOn(tutor, "extractConcepts").mockImplementation(() => { started.resolve(); return pending.promise; });
+    vi.spyOn(tutor, "extractConcepts").mockImplementation(() => {
+      started.resolve();
+      return pending.promise;
+    });
     const older = state.studyNote(["a.md"], "quiz");
     await started.promise;
     await state.studyNote(["b.md"], "quiz");
@@ -237,7 +270,10 @@ describe("study command ordering", () => {
     await state.refresh();
     const pending = deferred<{ concepts: ReturnType<typeof extracted>[] }>();
     const started = deferred<void>();
-    vi.spyOn(tutor, "extractConcepts").mockImplementation(() => { started.resolve(); return pending.promise; });
+    vi.spyOn(tutor, "extractConcepts").mockImplementation(() => {
+      started.resolve();
+      return pending.promise;
+    });
     const older = state.studyNote(["a.md"], "quiz");
     await started.promise;
     if (action === "start") state.startExplain(state.concepts[0].id);
@@ -303,7 +339,11 @@ describe("indexing disposal", () => {
     const bulk = state.readSelected(["a.md", "b.md"]);
     const study = state.studyNote(["b.md"], "quiz");
     await Promise.resolve();
-    state.init(f.backend, () => f.settings, async () => {});
+    state.init(
+      f.backend,
+      () => f.settings,
+      async () => {},
+    );
     await state.refresh();
     first.resolve({ concepts: [extracted()] });
     await Promise.all([bulk, study]);
