@@ -242,6 +242,46 @@ describe("choosing what Clawd reads", () => {
     await vi.waitFor(() => expect(extract).toHaveBeenCalledTimes(3));
     expect(state.confirmCount).toBeNull();
   });
+
+  it("forgets a pick once it's read, so later edits wait for auto re-reading", async () => {
+    const f = await setup(["a.md", "b.md"]);
+    f.settings.autoIndex = false;
+    const extract = vi.spyOn(tutor, "extractConcepts").mockResolvedValue({ concepts: [extracted()] });
+    await state.readSelected(["b.md"]);
+    expect(extract).toHaveBeenCalledTimes(1);
+    f.library.notes.get("b.md")!.hash = "edited";
+    await state.refresh();
+    await state.indexAll();
+    expect(extract).toHaveBeenCalledTimes(1);
+    expect(state.note("b.md")?.stale).toBe(true);
+  });
+
+  it("asks before re-reading many edited notes, even ones picked earlier", async () => {
+    const f = await setup(["a.md", "b.md", "c.md"]);
+    f.settings.confirmAbove = 1;
+    const extract = vi.spyOn(tutor, "extractConcepts").mockResolvedValue({ concepts: [extracted()] });
+    await state.readSelected(["a.md", "b.md"]);
+    expect(extract).toHaveBeenCalledTimes(2);
+    for (const key of ["a.md", "b.md"]) f.library.notes.get(key)!.hash = "edited";
+    await state.refresh();
+    await state.indexAll();
+    expect(extract).toHaveBeenCalledTimes(2);
+    expect(state.confirmCount).toBe(2);
+  });
+
+  it("keeps a pick whose read failed, and reads it on the next pass", async () => {
+    const f = await setup(["a.md", "b.md"]);
+    f.settings.autoIndex = false;
+    const extract = vi
+      .spyOn(tutor, "extractConcepts")
+      .mockRejectedValueOnce(new Error("Claude is busy"))
+      .mockResolvedValue({ concepts: [extracted()] });
+    await state.readSelected(["b.md"]);
+    expect(state.indexError).toBe("Claude is busy");
+    await state.indexAll();
+    expect(extract).toHaveBeenCalledTimes(2);
+    expect(state.note("b.md")?.stale).toBe(false);
+  });
 });
 
 describe("study command ordering", () => {

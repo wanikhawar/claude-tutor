@@ -85,7 +85,10 @@ export class Store {
   private lastActivity = Date.now();
   private approvedBulk = false;
   private declinedBulk = false;
-  /** Notes you picked for Clawd to read. */
+  /**
+   * Notes you picked for Clawd to read that it hasn't read yet. Once read, a note is like any
+   * other: edits to it are re-read only as the auto re-read and confirmation settings say.
+   */
   private picked = new Set<string>();
   private timer: number | null = null;
   private ticker: number | null = null;
@@ -321,6 +324,12 @@ export class Store {
     return this.runIndex(() => this.readAll(force, generation));
   }
 
+  /** A note is up to date: it's no longer waiting to be read or retried. */
+  private readDone(key: string) {
+    this.failedReads.delete(key);
+    this.picked.delete(key);
+  }
+
   /** Read the notes you picked (and finish any earlier picks that haven't been read yet). */
   async readSelected(keys: string[]) {
     for (const key of keys) this.picked.add(key);
@@ -354,7 +363,7 @@ export class Store {
           const snap = await api.indexNote(note.key, this.reading.signal);
           if (!this.active(generation)) return;
           this.snap = snap;
-          if (!snap.notes.find((n) => n.key === note.key)?.stale) this.failedReads.delete(note.key);
+          if (!snap.notes.find((n) => n.key === note.key)?.stale) this.readDone(note.key);
         } catch (e) {
           if (!this.active(generation)) return;
           this.failedReads.add(note.key);
@@ -439,7 +448,7 @@ export class Store {
         const note = this.note(key);
         // A bulk read may already have brought this note up to date while we waited.
         if (note && !note.stale) {
-          this.failedReads.delete(key);
+          this.readDone(key);
           return true;
         }
         this.indexing = { done: 0, total: 1, current: note?.title ?? key };
@@ -450,7 +459,7 @@ export class Store {
           const current = snap.notes.find((n) => n.key === key);
           if (!current) throw new Error("That note is no longer in the library.");
           if (!current.stale) {
-            this.failedReads.delete(key);
+            this.readDone(key);
             return true;
           }
         }
