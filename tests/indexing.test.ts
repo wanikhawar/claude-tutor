@@ -372,4 +372,21 @@ describe("reading a long note", () => {
     ]);
     expect(f.progress.data.concepts.map((c) => c.name)).toEqual(["First idea", "Second idea", "Third idea"]);
   });
+
+  it.each([
+    ["its source is removed", (f: ReturnType<typeof fixture>) => (f.settings.studyFolders = [])],
+    ["its folder is excluded", (f: ReturnType<typeof fixture>) => (f.settings.excludedFolders = ["notes"])],
+    ["it's deleted", (f: ReturnType<typeof fixture>) => f.files.splice(0)],
+  ])("sends no more of it once %s", async (_, revoke) => {
+    const f = await setup(["notes/a.md"]);
+    f.library.notes.get("notes/a.md")!.body = "x".repeat(50_000);
+    const extract = vi.spyOn(tutor, "extractConcepts").mockImplementation(async () => {
+      revoke(f);
+      return { concepts: [extracted()] };
+    });
+    await state.readSelected(["notes/a.md"]);
+    expect(extract).toHaveBeenCalledTimes(1);
+    expect(f.progress.noteHash("notes/a.md")).toBeUndefined();
+    expect(state.indexError).toBeNull();
+  });
 });

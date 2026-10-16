@@ -260,17 +260,18 @@ export class Backend {
     return this.progress.conceptsFor(new Set(this.library.notes.keys()));
   }
 
+  /** Whether a note is still in your library: its source wasn't removed or excluded, and the file is still there. */
+  private stillInLibrary(key: string): boolean {
+    const path = key.replace(/#p\d+-\d+$/, "");
+    return this.library.inScope(path) && this.app.vault.getAbstractFileByPath(path) instanceof TFile;
+  }
+
   /**
    * Whether a note's text may go with a request: you picked it for Clawd to read, and it's
    * still in your library. Checked on every request, so a source you remove stops being shared.
    */
   private shareable(key: string): boolean {
-    const path = key.replace(/#p\d+-\d+$/, "");
-    return (
-      this.progress.noteHash(key) !== undefined &&
-      this.library.inScope(path) &&
-      this.app.vault.getAbstractFileByPath(path) instanceof TFile
-    );
+    return this.progress.noteHash(key) !== undefined && this.stillInLibrary(key);
   }
 
   /**
@@ -305,16 +306,20 @@ export class Backend {
       vault: this.app.vault.getName(),
       configured: s.studyFolders.length > 0 || s.studyFiles.length > 0,
       sources: { folders: [...s.studyFolders], files: [...s.studyFiles] },
-      notes: this.library.sorted().map((n) => ({
-        key: n.key,
-        rel: n.path,
-        title: n.title,
-        stale: !this.progress.isCurrent(n.key, n.hash),
-        indexed: this.progress.noteHash(n.key) !== undefined,
-        kind: n.kind,
-        group: n.group,
-        pages: n.pages,
-      })),
+      // Not ones whose source was just removed, before the rescan drops them: nothing should read them now.
+      notes: this.library
+        .sorted()
+        .filter((n) => this.stillInLibrary(n.key))
+        .map((n) => ({
+          key: n.key,
+          rel: n.path,
+          title: n.title,
+          stale: !this.progress.isCurrent(n.key, n.hash),
+          indexed: this.progress.noteHash(n.key) !== undefined,
+          kind: n.kind,
+          group: n.group,
+          pages: n.pages,
+        })),
       skipped: [...this.library.skipped.values()],
       concepts,
       mistakes: this.progress.openMisconceptions().flatMap((m) => {
@@ -350,6 +355,8 @@ export class Backend {
     const list: ExtractedConcept[] = [];
     const seen = new Set<string>();
     for (const [i, text] of parts.entries()) {
+      // Removed from your library while an earlier part was read: send no more of it.
+      if (!this.stillInLibrary(key)) return this.snapshot();
       const part = { index: i + 1, count: parts.length, earlier: list.map((c) => c.name) };
       const { concepts } = await tutor.extractConcepts(options, note.title, text, known, part);
       if (options.signal?.aborted) throw cancelled("Claude");
