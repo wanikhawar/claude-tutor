@@ -5,46 +5,7 @@
 // copies: remote images become links, and frames, media and styles are dropped.
 
 import { MarkdownRenderer, type App, type Component } from "obsidian";
-
-/** Elements that fetch something (or restyle the app) as soon as they're shown. */
-const DROP = new Set([
-  "iframe",
-  "frame",
-  "frameset",
-  "object",
-  "embed",
-  "applet",
-  "portal",
-  "video",
-  "audio",
-  "source",
-  "track",
-  "picture",
-  "link",
-  "style",
-  "meta",
-  "base",
-  "script",
-  // SVG
-  "image",
-  "use",
-  "feimage",
-]);
-
-/** Attributes that fetch something; `src` is kept only on images that are already local. */
-const FETCHING = new Set([
-  "src",
-  "srcset",
-  "poster",
-  "background",
-  "lowsrc",
-  "dynsrc",
-  "data",
-  "ping",
-  "formaction",
-  "action",
-  "xlink:href",
-]);
+import { CSS_FETCH, FETCHING_ATTRIBUTES, FETCHING_ELEMENTS } from "../../core/inert";
 
 const LOCAL = /^(app|data|blob):/i;
 
@@ -67,7 +28,7 @@ function safeCopy(node: Node): Node {
 function safeElement(e: Element): Node | null {
   const name = e.localName.toLowerCase();
   // Replaced one for one, never removed: clicks find their original by position.
-  if (DROP.has(name)) return e.ownerDocument.createComment("");
+  if (FETCHING_ELEMENTS.has(name)) return e.ownerDocument.createComment("");
   if (name === "img") {
     const src = e.getAttribute("src") ?? "";
     if (!LOCAL.test(src.trim())) return imageLink(e, src);
@@ -77,8 +38,8 @@ function safeElement(e: Element): Node | null {
     const keepSrc = n === "src" && name === "img";
     // CSS loads images with url() and image-set(), in styles and SVG attributes like fill;
     // a backslash in a style could be an escape spelling either.
-    const css = /url\s*\(|image-set\s*\(/i.test(a.value) || (n === "style" && a.value.includes("\\"));
-    if ((FETCHING.has(n) && !keepSrc) || css) e.removeAttribute(a.name);
+    const css = CSS_FETCH.test(a.value) || (n === "style" && a.value.includes("\\"));
+    if ((FETCHING_ATTRIBUTES.has(n) && !keepSrc) || css) e.removeAttribute(a.name);
   }
   return null;
 }

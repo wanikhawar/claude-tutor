@@ -3,6 +3,7 @@
 import { TFile, normalizePath, type App } from "obsidian";
 import { cancelled, type Provider, type RequestOptions } from "./core/cli";
 import { listModels } from "./core/providers";
+import { inertMarkdown } from "./core/inert";
 import { chunks, clip, headings } from "./core/notes";
 import { PART_CHARS } from "./core/pdf";
 import { Progress } from "./core/progress";
@@ -735,7 +736,9 @@ export class Backend {
       .map((p) => `- [[${p.replace(/\.md$/, "")}]]`)
       .join("\n");
     const date = new Date().toISOString().slice(0, 10);
-    const body = `---\ncreated: ${date}\ntags: [claude-tutor/lesson]\n---\n# ${topic}\n\n${summary.trim()}\n${links ? `\n## From your notes\n${links}\n` : ""}`;
+    // Obsidian shows the note itself, so nothing in it may load from the web (the topic too: it can be a concept name).
+    const lesson = inertMarkdown(`# ${topic}\n\n${summary.trim()}`);
+    const body = `---\ncreated: ${date}\ntags: [claude-tutor/lesson]\n---\n${lesson}\n${links ? `\n## From your notes\n${links}\n` : ""}`;
     await this.app.vault.create(path, body);
     await this.app.workspace.openLinkText(path, "", "tab");
     return path;

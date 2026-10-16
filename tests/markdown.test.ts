@@ -5,6 +5,7 @@ import { flushSync, mount, unmount } from "svelte";
 import { Component, MarkdownRenderer, type App } from "obsidian";
 import Markdown from "../src/ui/components/Markdown.svelte";
 import { renderMarkdown } from "../src/ui/lib/markdown";
+import { inertMarkdown } from "../src/core/inert";
 import { store } from "../src/ui/lib/store.svelte";
 import { fixture } from "./helpers";
 
@@ -166,5 +167,93 @@ describe("rendering replies", () => {
     flushSync();
     expect(target.querySelector(".ct-inline")!.innerHTML).toBe("Just <em>this</em>");
     unmount(cmp);
+  });
+});
+
+describe("saved lessons", () => {
+  it.each([
+    ["an image", `![diagram](${EVIL})`, `[diagram](${EVIL})`],
+    ["an image with a title", `![a](<${EVIL}> "t")`, `[a](<${EVIL}> "t")`],
+    ["a reference image", `![a][r]\n\n[r]: ${EVIL}`, `[a][r]\n\n[r]: ${EVIL}`],
+    ["a linked image", `[![a](${EVIL})](https://x.example)`, `[[a](${EVIL})](https://x.example)`],
+    ["an image whose alt looks like an embed", `![[a]](${EVIL})`, `[[a]](${EVIL})`],
+    ["an embed of a URL", `![[${EVIL}]]`, `[[${EVIL}]]`],
+    ["an image tag", `<img src="${EVIL}">`, `< img src="${EVIL}">`],
+    ["an image tag over lines", `<IMG\nsrc=${EVIL}>`, `< IMG\nsrc=${EVIL}>`],
+    ["an image tag with a slash", `<img/src=${EVIL}>`, `< img/src=${EVIL}>`],
+    ["an unclosed frame", `<iframe src="${EVIL}"`, `< iframe src="${EVIL}"`],
+    ["an SVG image", `<svg><image href="${EVIL}"/></svg>`, `<svg>< image href="${EVIL}"/></svg>`],
+    [
+      "a CSS background",
+      `<div style="background:url(${EVIL})">x</div>`,
+      `< div style="background:url(${EVIL})">x</div>`,
+    ],
+    ["an escaped CSS background", `<p style="background:\\75rl(x)">`, `< p style="background:\\75rl(x)">`],
+    ["an encoded CSS background", `<p style="background:&#117;rl(x)">`, `< p style="background:&#117;rl(x)">`],
+    ["a fetching attribute", `<table background="${EVIL}">`, `< table background="${EVIL}">`],
+    ["an attribute right after a quoted one", `<a title="x"ping="${EVIL}">`, `< a title="x"ping="${EVIL}">`],
+    ["a stylesheet", `<style>@import "${EVIL}";</style>`, `< style>@import "${EVIL}";< /style>`],
+    [
+      'a style after a quoted ">"',
+      `<div title=">" style="background-image:url(${EVIL})">`,
+      `< div title=">" style="background-image:url(${EVIL})">`,
+    ],
+    [
+      'a style after a single-quoted ">"',
+      `<div title='>' style=background:url(${EVIL})>`,
+      `< div title='>' style=background:url(${EVIL})>`,
+    ],
+    [
+      "a style after a quote in a name",
+      `<div x" title=">" style="background:url(${EVIL})">`,
+      `< div x" title=">" style="background:url(${EVIL})">`,
+    ],
+    [
+      "an image inside an invalid tag's attribute",
+      `<a title="<img src=${EVIL}>" \\x>`,
+      `<a title="< img src=${EVIL}>" \\x>`,
+    ],
+    ['an image right after another "<"', `<x<img src=${EVIL}>`, `< x< img src=${EVIL}>`],
+    [
+      "a tag name a browser reads further",
+      `<div$ style="background:url(${EVIL})">`,
+      `< div$ style="background:url(${EVIL})">`,
+    ],
+    // Code is changed too: a parser could disagree about where it ends.
+    ["code that isn't code", `- a\n\n   \`\`\`\n   x\n\n![a](${EVIL})`, `- a\n\n   \`\`\`\n   x\n\n[a](${EVIL})`],
+  ])("can't load %s", (_, md, safe) => {
+    expect(inertMarkdown(md)).toBe(safe);
+  });
+
+  it("keeps what loads nothing", () => {
+    const md = [
+      "**Bold**, $0<x<1$, a < b, x<y, <https://example.com> and [a link](https://example.com).",
+      "![[Diagram.png]] ![[Note#Heading: part|alias]]",
+      'H<sub>2</sub>O, <kbd>Ctrl</kbd>, <span style="color: red">red</span>, <a href="https://example.com">link</a>',
+      "<details><summary>More</summary>Hidden</details>",
+      "```\nconst x = a<b;\n```",
+    ].join("\n\n");
+    expect(inertMarkdown(md)).toBe(md);
+  });
+
+  it('only spaces out a "<" it has to, so math still reads the same', () => {
+    expect(inertMarkdown("$0<x<1$, and $y=\\frac{1}{2}$ > 0")).toBe("$0< x<1$, and $y=\\frac{1}{2}$ > 0");
+  });
+
+  it("writes and opens a lesson that can't load anything", async () => {
+    const f = fixture(["a.md"]);
+    const create = vi.fn(async (_path: string, _data: string) => {});
+    const open = vi.fn(async () => {});
+    Object.assign(f.vault, { create, createFolder: vi.fn(async () => {}) });
+    Object.assign(f.app.workspace, { openLinkText: open });
+    const path = await f.backend.saveLesson(`Topic ![x](${EVIL})`, `Summary ![diagram](${EVIL}) <img src="${EVIL}">`, [
+      "a.md",
+    ]);
+    const saved = create.mock.calls[0][1];
+    expect(saved).toContain(`# Topic [x](${EVIL})`);
+    expect(saved).toContain(`Summary [diagram](${EVIL}) < img src="${EVIL}">`);
+    expect(saved).toContain("- [[a]]");
+    expect(saved).not.toMatch(/!\[(?!\[)|<img/);
+    expect(open).toHaveBeenCalledWith(path, "", "tab");
   });
 });
