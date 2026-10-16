@@ -422,6 +422,24 @@ describe("Teach lesson resets", () => {
     expect(target.querySelector(".thumbs")).toBeNull();
   });
 
+  it("follows a source note renamed mid-lesson", async () => {
+    vi.spyOn(api, "relevantNotes").mockResolvedValue(["a.md", "b.md"]);
+    const teach = vi.spyOn(api, "teach").mockResolvedValue(reply);
+    component = flushSync(() => mount(Teach, { target }));
+    type(target.querySelector<HTMLTextAreaElement>("textarea")!, "Topic");
+    button("Teach me").click();
+    await settle();
+    f.backend.renamed("a.md", "moved/a.md");
+    await settle();
+    type(target.querySelector<HTMLTextAreaElement>("textarea")!, "Go on");
+    button("Send").click();
+    await settle();
+    expect(teach.mock.calls.map(([, sources]) => sources)).toEqual([
+      ["a.md", "b.md"],
+      ["moved/a.md", "b.md"],
+    ]);
+  });
+
   it("also prevents resets and sends while finding relevant notes", async () => {
     const sources = deferred<string[]>();
     vi.spyOn(api, "relevantNotes").mockReturnValueOnce(sources.promise);

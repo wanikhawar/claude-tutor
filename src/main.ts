@@ -384,7 +384,7 @@ export default class ClaudeTutorPlugin extends Plugin {
             this.pendingReloads.delete(path);
           }
         }
-        this.backend.progress.rename(oldPath, f.path);
+        this.backend.renamed(oldPath, f.path);
         lib.removeFile(oldPath);
         if (changed) await this.saveData(this.settings);
         if (this.unloaded) return;

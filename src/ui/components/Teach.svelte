@@ -8,6 +8,7 @@
   import { loadDraft, saveDraft } from "../lib/util";
   import { store } from "../lib/store.svelte";
   import { TEACH_CONTROLS } from "../../core/tutor";
+  import { remapPath } from "../../core/paths";
   import { Attachments } from "../lib/attachments.svelte";
   import { toInputs } from "../lib/images";
   import Clawd from "./Clawd.svelte";
@@ -259,7 +260,11 @@
 
   onMount(() => {
     store.primaryHandlers.teach = primary;
+    // A note renamed or moved mid-lesson is still the same note. One moved out of the library
+    // still stops the lesson: the backend checks every source before each turn.
+    const unfollow = api.onRename((from, to) => (sources = sources.map((k) => remapPath(k, from, to))));
     return () => {
+      unfollow();
       request?.abort();
       att.clear();
       if (store.primaryHandlers.teach === primary) delete store.primaryHandlers.teach;

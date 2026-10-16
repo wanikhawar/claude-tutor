@@ -6,6 +6,8 @@ import * as providers from "../src/core/providers";
 import { review } from "../src/core/srs";
 import { applyExclusions } from "../src/settings";
 import { emptyProgress, type ProgressData } from "../src/core/progress";
+import { remapPath } from "../src/core/paths";
+import type { TeachReply } from "../src/core/types";
 import { fixture, file, folder, extracted, deferred, manifest } from "./helpers";
 import { FileSystemAdapter, type TFile } from "obsidian";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -474,6 +476,31 @@ describe("vault folder renames", () => {
     await f.events.get("rename")!(f.files[0], "old/one.md");
     expect(f.progress.concept(id)?.note_path).toBe("new/one.md");
     expect(f.vault.cachedRead.mock.calls.some(([n]) => n.path.includes("private"))).toBe(false);
+  });
+
+  it("tells an open lesson where its notes moved, and lets it go on unless they left the library", async () => {
+    const f = pluginFixture(["old/a.md", "old/b.md"]);
+    f.settings.excludedFolders = ["hidden"];
+    for (const k of ["old/a.md", "old/b.md"]) f.progress.saveConcepts(k, `hash:${k}`, [extracted(k)]);
+    const teach = vi.spyOn(tutor, "teach").mockResolvedValue({} as TeachReply);
+    let sources = ["old/a.md", "old/b.md"];
+    f.backend.onRename((from, to) => (sources = sources.map((k) => remapPath(k, from, to))));
+    f.internals.registerVaultEvents();
+    const history: [boolean, string][] = [[false, "Your note says…"]];
+
+    f.files.splice(0, 2, file("new/a.md"), file("new/b.md"));
+    const renamed = f.events.get("rename")!(folder("new"), "old");
+    expect(sources).toEqual(["new/a.md", "new/b.md"]);
+    await renamed;
+    await f.backend.teach("idea", sources, history, "Go on");
+    expect(teach.mock.calls[0][2]).toContain("Content from new/a.md");
+
+    // Moved somewhere excluded: genuinely gone from the library, so the lesson stops.
+    f.files[1] = file("hidden/b.md");
+    await f.events.get("rename")!(f.files[1], "new/b.md");
+    expect(sources).toEqual(["new/a.md", "hidden/b.md"]);
+    await expect(f.backend.teach("idea", sources, history, "Go on")).rejects.toThrow("Start a new lesson");
+    expect(teach).toHaveBeenCalledTimes(1);
   });
 
   it("keeps a renamed excluded folder excluded inside a whole-vault source", async () => {

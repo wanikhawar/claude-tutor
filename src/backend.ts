@@ -172,6 +172,7 @@ function shares(lengths: number[], total: number): number[] {
 
 export class Backend {
   private listeners = new Set<() => void>();
+  private renameListeners = new Set<(oldPath: string, newPath: string) => void>();
   private requests = new AbortController();
 
   constructor(
@@ -187,6 +188,7 @@ export class Backend {
   dispose() {
     this.requests.abort();
     this.listeners.clear();
+    this.renameListeners.clear();
     this.library.dispose();
   }
 
@@ -200,6 +202,18 @@ export class Backend {
 
   emit() {
     for (const fn of this.listeners) fn();
+  }
+
+  /** Follow renamed files and folders: for what holds on to note keys, like an open lesson. */
+  onRename(fn: (oldPath: string, newPath: string) => void): () => void {
+    this.renameListeners.add(fn);
+    return () => this.renameListeners.delete(fn);
+  }
+
+  /** A file or folder was renamed: its notes keep their progress, and whatever holds their keys follows them. */
+  renamed(oldPath: string, newPath: string) {
+    this.progress.rename(oldPath, newPath);
+    for (const fn of this.renameListeners) fn(oldPath, newPath);
   }
 
   /** Ask a CLI which models it offers and remember the answer. */
