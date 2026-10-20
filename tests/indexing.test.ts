@@ -243,6 +243,57 @@ describe("choosing what Clawd reads", () => {
     expect(state.confirmCount).toBeNull();
   });
 
+  it("asks again for a later batch after you approved an earlier one", async () => {
+    const f = await setup(["a.md", "b.md", "c.md"]);
+    f.settings.confirmAbove = 1;
+    for (const key of ["a.md", "b.md"]) f.progress.saveConcepts(key, "old-hash", [extracted()]);
+    await state.refresh();
+    const extract = vi.spyOn(tutor, "extractConcepts").mockResolvedValue({ concepts: [extracted()] });
+    await state.indexAll();
+    state.confirmBulk(true);
+    await vi.waitFor(() => expect(extract).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(state.indexing).toBeNull());
+    for (const key of ["a.md", "b.md"]) f.library.notes.get(key)!.hash = "edited";
+    await state.refresh();
+    await state.indexAll();
+    expect(extract).toHaveBeenCalledTimes(2);
+    expect(state.confirmCount).toBe(2);
+  });
+
+  it("asks about more edits that arrive while an approved batch is being read", async () => {
+    const f = await setup(["a.md", "b.md", "c.md", "d.md"]);
+    f.settings.confirmAbove = 1;
+    for (const key of ["a.md", "b.md", "c.md", "d.md"]) f.progress.saveConcepts(key, "old-hash", [extracted()]);
+    for (const key of ["c.md", "d.md"]) f.library.notes.set(key, { ...f.library.notes.get(key)!, hash: "old-hash" });
+    await state.refresh();
+    const extract = vi.spyOn(tutor, "extractConcepts").mockImplementation(async (_, title) => {
+      // A sync edits two more notes while the first approved one is read.
+      if (title === "a.md")
+        for (const key of ["c.md", "d.md"]) f.library.notes.set(key, { ...f.library.notes.get(key)!, hash: "synced" });
+      return { concepts: [extracted()] };
+    });
+    await state.indexAll();
+    expect(state.confirmCount).toBe(2);
+    state.confirmBulk(true);
+    await vi.waitFor(() => expect(state.indexing).toBeNull());
+    expect(extract.mock.calls.map(([, title]) => title)).toEqual(["a.md", "b.md"]);
+    expect(state.confirmCount).toBe(2);
+  });
+
+  it("reads a note edited during its read once per pass, leaving the edit for the next pass", async () => {
+    const f = await setup(["a.md"]);
+    let reads = 0;
+    const extract = vi.spyOn(tutor, "extractConcepts").mockImplementation(async () => {
+      // You keep typing: every read finishes on a note that has changed again.
+      f.library.notes.set("a.md", { ...f.library.notes.get("a.md")!, hash: `edit-${++reads}` });
+      return { concepts: [extracted()] };
+    });
+    await state.readSelected(["a.md"]);
+    expect(extract).toHaveBeenCalledTimes(1);
+    expect(state.note("a.md")?.stale).toBe(true);
+    expect(state.indexing).toBeNull();
+  });
+
   it("forgets a pick once it's read, so later edits wait for auto re-reading", async () => {
     const f = await setup(["a.md", "b.md"]);
     f.settings.autoIndex = false;

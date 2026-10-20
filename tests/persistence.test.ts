@@ -3,9 +3,9 @@ import ClaudeTutorPlugin from "../src/main";
 import { store } from "../src/ui/lib/store.svelte";
 import * as tutor from "../src/core/tutor";
 import * as providers from "../src/core/providers";
-import { review } from "../src/core/srs";
+import { isDue, review } from "../src/core/srs";
 import { applyExclusions } from "../src/settings";
-import { emptyProgress, type ProgressData } from "../src/core/progress";
+import { emptyProgress, parseProgress, type ProgressData } from "../src/core/progress";
 import { remapPath } from "../src/core/paths";
 import type { TeachReply } from "../src/core/types";
 import { fixture, file, folder, extracted, deferred, manifest } from "./helpers";
@@ -77,6 +77,16 @@ describe("progress persistence", () => {
     f.disk.set("progress.json", text);
     expect(await f.internals.loadProgress()).toEqual(emptyProgress());
     expect(f.disk.get("progress.json.bak")).toBe(text);
+  });
+
+  it("drops a saved review date that doesn't parse, so the concept comes back for review", () => {
+    const concept = (due: string) => ({ id: 1, note_path: "a.md", name: "Idea", due, last_reviewed: due });
+    const bad = parseProgress(JSON.stringify({ concepts: [concept("someday")] })).concepts[0];
+    expect(bad).toMatchObject({ due: null, last_reviewed: null });
+    expect(isDue(bad)).toBe(true);
+    const good = parseProgress(JSON.stringify({ concepts: [concept("2099-01-01T00:00:00.000Z")] })).concepts[0];
+    expect(good.due).toBe("2099-01-01T00:00:00.000Z");
+    expect(isDue(good)).toBe(false);
   });
 
   it("never copies over an older backup", async () => {

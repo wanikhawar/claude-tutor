@@ -61,6 +61,29 @@ describe("quiz identities", () => {
     await expect(f.backend.makeQuiz([f.b.id], 1)).rejects.toThrow("outside this quiz");
   });
 
+  it.each([
+    [["Right", "Wrong"], 99],
+    [["Right", "Wrong"], -1],
+    [["Right", "Wrong"], 1.5],
+    [["Right"], 0],
+    [[], -1],
+  ])("rejects a multiple-choice question with options %j and answer %s", async (options, correct_option) => {
+    const f = setup();
+    vi.spyOn(tutor, "makeQuiz").mockResolvedValue({
+      questions: [{ ...f.q, options, correct_option }],
+      mood: "curious",
+      mascot_line: "Quiz",
+    });
+    await expect(f.backend.makeQuiz([f.b.id], 1)).rejects.toThrow("without a valid answer");
+  });
+
+  it("accepts a written question with no options", async () => {
+    const f = setup();
+    const short = { ...f.q, kind: "short" as const, options: [], correct_option: -1 };
+    vi.spyOn(tutor, "makeQuiz").mockResolvedValue({ questions: [short], mood: "curious", mascot_line: "Quiz" });
+    expect((await f.backend.makeQuiz([f.b.id], 1)).questions).toHaveLength(1);
+  });
+
   it("includes concept and misconception IDs in the generation prompt and schema", async () => {
     const f = setup();
     const id = f.progress.addMisconception(f.b.id, wrong.misconception);

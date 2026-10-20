@@ -83,8 +83,10 @@ export class Store {
   private saveSettings!: () => Promise<void>;
   private moodAt = Date.now();
   private lastActivity = Date.now();
-  private approvedBulk = false;
   private declinedBulk = false;
+  /** The edited notes the confirmation is asking about, and the ones you said yes to. */
+  private askedBulk: string[] = [];
+  private approvedBulk = new Set<string>();
   /**
    * Notes you picked for Clawd to read that it hasn't read yet. Once read, a note is like any
    * other: edits to it are re-read only as the auto re-read and confirmation settings say.
@@ -113,8 +115,9 @@ export class Store {
     this.plan = null;
     this.currentConceptId = null;
     this.view = { name: "today" };
-    this.approvedBulk = false;
     this.declinedBulk = false;
+    this.askedBulk = [];
+    this.approvedBulk = new Set();
     this.picked = new Set();
     setBackend(backend);
     this.settings = settings;
@@ -317,17 +320,18 @@ export class Store {
     return this.notes.filter((n) => n.stale && !n.indexed);
   }
 
-  async indexAll(force = false) {
+  async indexAll() {
     const generation = this.generation;
     while (this.indexTask && this.active(generation)) await this.indexTask;
     if (!this.active(generation) || !this.configured) return;
-    return this.runIndex(() => this.readAll(force, generation));
+    return this.runIndex(() => this.readAll(generation));
   }
 
   /** A note is up to date: it's no longer waiting to be read or retried. */
   private readDone(key: string) {
     this.failedReads.delete(key);
     this.picked.delete(key);
+    this.approvedBulk.delete(key);
   }
 
   /** Read the notes you picked (and finish any earlier picks that haven't been read yet). */
@@ -336,18 +340,23 @@ export class Store {
     await this.indexAll();
   }
 
-  private async readAll(force: boolean, generation: number) {
+  private async readAll(generation: number) {
     const limit = this.snap?.confirmAbove ?? 25;
-    // Notes you picked are already approved. Lots of edited ones wait for your OK, but don't hold up your picks.
+    // Each note is read at most once per pass; one edited again meanwhile waits for the next pass,
+    // so a note you keep typing in isn't re-read back to back.
+    const read = new Set<string>();
+    // Notes you picked or approved are read. Lots of other edited ones wait for your OK, but don't hold up the rest.
     const next = () => {
-      const all = this.queue();
-      const edited = all.filter((n) => !this.picked.has(n.key));
-      if (edited.length <= limit || force || this.approvedBulk) {
+      const all = this.queue().filter((n) => !read.has(n.key));
+      const approved = (key: string) => this.picked.has(key) || this.approvedBulk.has(key);
+      const edited = all.filter((n) => !approved(n.key));
+      if (edited.length <= limit) {
         this.confirmCount = null;
         return all;
       }
+      this.askedBulk = edited.map((n) => n.key);
       if (!this.declinedBulk) this.confirmCount = edited.length;
-      return all.filter((n) => this.picked.has(n.key));
+      return all.filter((n) => approved(n.key));
     };
     let queue = next();
     if (!queue.length) return;
@@ -359,6 +368,7 @@ export class Store {
       for (const note of queue) {
         if (!this.active(generation)) return;
         this.indexing = { done, total, current: note.title };
+        read.add(note.key);
         try {
           const snap = await api.indexNote(note.key, this.reading.signal);
           if (!this.active(generation)) return;
@@ -374,7 +384,7 @@ export class Store {
         }
         done++;
       }
-      // Notes edited while we were reading get picked up too.
+      // Other notes edited while we were reading get picked up too.
       queue = next();
       total = done + queue.length;
     }
@@ -428,8 +438,9 @@ export class Store {
   confirmBulk(yes: boolean) {
     this.confirmCount = null;
     if (yes) {
-      this.approvedBulk = true;
-      void this.indexAll(true);
+      // Approves the notes it asked about: more edits arriving later are counted afresh.
+      for (const key of this.askedBulk) this.approvedBulk.add(key);
+      void this.indexAll();
     } else {
       this.declinedBulk = true;
       this.say("happy", "No problem. I'll leave your edited notes as they are until you ask me to re-read them.");

@@ -61,7 +61,8 @@ export function emptyProgress(): ProgressData {
 const isObject = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x);
 const isId = (x: unknown): x is number => Number.isInteger(x) && (x as number) > 0;
 const str = (x: unknown) => (typeof x === "string" ? x : "");
-const strOrNull = (x: unknown) => (typeof x === "string" ? x : null);
+/** A date that doesn't parse is dropped, so the concept counts as due instead of never. */
+const dateOrNull = (x: unknown) => (typeof x === "string" && !Number.isNaN(Date.parse(x)) ? x : null);
 const num = (x: unknown, fallback: number) => (typeof x === "number" && Number.isFinite(x) ? x : fallback);
 const strs = (x: unknown) => (Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : []);
 
@@ -112,9 +113,9 @@ export function parseProgress(text: string): ProgressData {
           interval_days: num(c.interval_days, 0),
           reps: num(c.reps, 0),
           lapses: num(c.lapses, 0),
-          due: strOrNull(c.due),
+          due: dateOrNull(c.due),
           mastery: num(c.mastery, 0),
-          last_reviewed: strOrNull(c.last_reviewed),
+          last_reviewed: dateOrNull(c.last_reviewed),
         }
       : undefined,
   );
