@@ -243,6 +243,20 @@ describe("choosing what Clawd reads", () => {
     expect(state.confirmCount).toBeNull();
   });
 
+  it("reads a note edited during its read once per pass, leaving the edit for the next pass", async () => {
+    const f = await setup(["a.md"]);
+    let reads = 0;
+    const extract = vi.spyOn(tutor, "extractConcepts").mockImplementation(async () => {
+      // You keep typing: every read finishes on a note that has changed again.
+      f.library.notes.set("a.md", { ...f.library.notes.get("a.md")!, hash: `edit-${++reads}` });
+      return { concepts: [extracted()] };
+    });
+    await state.readSelected(["a.md"]);
+    expect(extract).toHaveBeenCalledTimes(1);
+    expect(state.note("a.md")?.stale).toBe(true);
+    expect(state.indexing).toBeNull();
+  });
+
   it("forgets a pick once it's read, so later edits wait for auto re-reading", async () => {
     const f = await setup(["a.md", "b.md"]);
     f.settings.autoIndex = false;

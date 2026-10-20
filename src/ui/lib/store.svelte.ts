@@ -338,9 +338,12 @@ export class Store {
 
   private async readAll(force: boolean, generation: number) {
     const limit = this.snap?.confirmAbove ?? 25;
+    // Each note is read at most once per pass; one edited again meanwhile waits for the next pass,
+    // so a note you keep typing in isn't re-read back to back.
+    const read = new Set<string>();
     // Notes you picked are already approved. Lots of edited ones wait for your OK, but don't hold up your picks.
     const next = () => {
-      const all = this.queue();
+      const all = this.queue().filter((n) => !read.has(n.key));
       const edited = all.filter((n) => !this.picked.has(n.key));
       if (edited.length <= limit || force || this.approvedBulk) {
         this.confirmCount = null;
@@ -359,6 +362,7 @@ export class Store {
       for (const note of queue) {
         if (!this.active(generation)) return;
         this.indexing = { done, total, current: note.title };
+        read.add(note.key);
         try {
           const snap = await api.indexNote(note.key, this.reading.signal);
           if (!this.active(generation)) return;
@@ -374,7 +378,7 @@ export class Store {
         }
         done++;
       }
-      // Notes edited while we were reading get picked up too.
+      // Other notes edited while we were reading get picked up too.
       queue = next();
       total = done + queue.length;
     }
