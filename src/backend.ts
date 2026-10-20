@@ -539,6 +539,10 @@ export class Backend {
       const concept = pool.find((c) => c.id === q.concept_id);
       if (!concept) throw new Error("Claude returned a question for a concept outside this quiz.");
       q.concept = concept.name;
+      const answer = q.correct_option;
+      const valid = q.options.length >= 2 && Number.isInteger(answer) && answer >= 0 && answer < q.options.length;
+      if (q.kind === "mcq" && !valid)
+        throw new Error("Claude returned a multiple-choice question without a valid answer.");
       if (
         q.misconception_id !== null &&
         !misc.some((m) => m.id === q.misconception_id && m.concept_id === concept.id)
