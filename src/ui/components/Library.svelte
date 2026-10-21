@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { Menu } from "obsidian";
-  import { store, isDue } from "../lib/store.svelte";
+  import { store } from "../lib/store.svelte";
   import { masteryColor, masteryLevel, relativeDue, timeAgo } from "../lib/util";
   import Icon from "./Icon.svelte";
   import Ring from "./Ring.svelte";
@@ -37,7 +37,7 @@
   const level = masteryLevel;
   function matches(c: Concept) {
     if (filter === "all") return true;
-    if (filter === "due") return isDue(c);
+    if (filter === "due") return store.isDue(c);
     return level(c) === filter;
   }
   const counts = $derived(
@@ -46,7 +46,7 @@
         f,
         f === "all"
           ? store.concepts.length
-          : store.concepts.filter((c) => (f === "due" ? isDue(c) : level(c) === f)).length,
+          : store.concepts.filter((c) => (f === "due" ? store.isDue(c) : level(c) === f)).length,
       ]),
     ) as Record<Filter, number>,
   );
@@ -80,7 +80,7 @@
   /** Sort key for a row's concepts: lower comes first. */
   function rank(cs: Concept[]): number {
     if (sort === "due") {
-      const due = cs.filter((c) => isDue(c));
+      const due = cs.filter((c) => store.isDue(c));
       return due.length ? -due.length : 1;
     }
     const seen = cs.filter((c) => c.last_reviewed);

@@ -72,6 +72,19 @@ describe("Claude process lifecycle", () => {
     expect(onModel).not.toHaveBeenCalled();
   });
 
+  it("rejects a plain-text reply that's missing a field, rather than handing on NaN", async () => {
+    const result = { type: "result", subtype: "success", result: 'Here you go: {"passed": true}' };
+    const opts = await executable(
+      `process.stdin.resume(); process.stdin.on("end", () => console.log(${JSON.stringify(JSON.stringify(result))}));`,
+    );
+    const schema = {
+      type: "object",
+      properties: { score: { type: "number" }, passed: { type: "boolean" } },
+      required: ["score", "passed"],
+    };
+    await expect(ask(opts, "System", "Prompt", schema)).rejects.toThrow("`score` is missing or the wrong type");
+  });
+
   it("does not launch an already-cancelled request", async () => {
     const controller = new AbortController();
     controller.abort();

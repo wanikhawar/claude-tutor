@@ -7,10 +7,12 @@ import Library from "../src/ui/components/Library.svelte";
 import NavRail from "../src/ui/components/NavRail.svelte";
 import ModelPicker from "../src/ui/components/ModelPicker.svelte";
 import Clawd from "../src/ui/components/Clawd.svelte";
+import Today from "../src/ui/components/Today.svelte";
 import * as tutor from "../src/core/tutor";
 import { api, type FeynmanEval, type TeachReply } from "../src/ui/lib/api";
 import { store } from "../src/ui/lib/store.svelte";
 import * as images from "../src/ui/lib/images";
+import { review } from "../src/core/srs";
 import { deferred, extracted, fixture, question } from "./helpers";
 
 let target: HTMLDivElement;
@@ -1181,6 +1183,31 @@ describe("Teach topic draft", () => {
     component = flushSync(() => mount(Teach, { target }));
     await settle();
     expect(target.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("");
+  });
+});
+
+describe("Today", () => {
+  it("brings back a failed concept once it falls due, with nothing else changing", async () => {
+    vi.useFakeTimers({ now: new Date(2026, 9, 21, 12) });
+    try {
+      const [failed, ...rest] = f.progress.data.concepts;
+      review(failed, 0);
+      for (const c of rest) review(c, 1);
+      // Started again under the fake clock, so its ticker runs on it.
+      store.init(
+        f.backend,
+        () => f.settings,
+        async () => {},
+      );
+      await store.refresh();
+      component = flushSync(() => mount(Today, { target }));
+      expect(target.querySelector(".stats b")?.textContent).toBe("0");
+      vi.advanceTimersByTime(10 * 60_000 + 1_000);
+      flushSync();
+      expect(target.querySelector(".stats b")?.textContent).toBe("1");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

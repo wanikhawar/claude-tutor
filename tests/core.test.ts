@@ -4,6 +4,7 @@ import { cleanPage, split, PART_CHARS } from "../src/core/pdf";
 import { EXTRACT_VERSION, Progress, conceptQuestion, emptyProgress } from "../src/core/progress";
 import { review } from "../src/core/srs";
 import { modelLabel, parseResult } from "../src/core/claude";
+import { mismatch } from "../src/core/providers";
 import { DEFAULT_SETTINGS, TutorSettingTab, ensureModels, modelName } from "../src/settings";
 import { statusGap } from "../src/view";
 
@@ -89,6 +90,74 @@ describe("progress + srs", () => {
     expect(cs.map((x) => x.name)).toEqual(["A", "C"]);
     expect(cs[0].reps).toBe(1);
     expect(p.noteHash("n.md")).toBe("h2");
+  });
+  it("keeps a concept's progress when a re-read changes its case, spacing or wording", () => {
+    const p = new Progress(emptyProgress());
+    p.saveConcepts("n.md", "h1", [
+      { ...c("Heat flows downhill"), excerpt: "Heat flows from hot to cold." },
+      c("Entropy grows"),
+    ]);
+    const [heat, entropy] = p.data.concepts;
+    review(heat, 1);
+    review(entropy, 1);
+    p.saveConcepts("n.md", "h2", [
+      // Reworded, but quoting the same sentence.
+      { ...c("Heat flows from hot to cold"), excerpt: " heat flows  from hot to cold." },
+      c("entropy  grows "),
+    ]);
+    expect(p.conceptsFor(new Set(["n.md"])).map((x) => [x.id, x.name, x.reps])).toEqual([
+      [heat.id, "Heat flows from hot to cold", 1],
+      [entropy.id, "entropy  grows", 1],
+    ]);
+  });
+  it("matches names before quotes, so a quote can't take a concept another one is named after", () => {
+    const p = new Progress(emptyProgress());
+    p.saveConcepts("n.md", "h1", [
+      { ...c("A"), excerpt: "q" },
+      { ...c("B"), excerpt: "r" },
+    ]);
+    const [a, b] = p.data.concepts;
+    p.saveConcepts("n.md", "h2", [
+      { ...c("New"), excerpt: "q" },
+      { ...c("A"), excerpt: "changed" },
+    ]);
+    const [first, second] = p.conceptsFor(new Set(["n.md"]));
+    expect([first.id, first.name]).toEqual([a.id, "A"]);
+    expect(second.name).toBe("New");
+    expect([a.id, b.id]).not.toContain(second.id);
+    expect(p.droppedConcept(b.id)?.name).toBe("B");
+  });
+  it("doesn't move progress by a quote that more than one concept shares", () => {
+    const p = new Progress(emptyProgress());
+    const quote = "Kinetic energy is half the mass times the speed squared.";
+    p.saveConcepts("n.md", "h1", [
+      { ...c("Kinetic energy grows with mass"), excerpt: quote },
+      { ...c("Kinetic energy grows with speed squared"), excerpt: quote },
+    ]);
+    const [mass] = p.data.concepts;
+    review(mass, 1);
+    p.addMisconception(mass.id, "Thinks mass doesn't matter");
+    // Re-read: only the speed idea is left, reworded, quoting the same sentence.
+    p.saveConcepts("n.md", "h2", [{ ...c("Speed counts twice in kinetic energy"), excerpt: quote }]);
+    const [speed] = p.conceptsFor(new Set(["n.md"]));
+    expect(speed.id).not.toBe(mass.id);
+    expect(speed.reps).toBe(0);
+    // And the other way round: one old concept, two new ones quoting it.
+    p.saveConcepts("n.md", "h3", [
+      { ...c("Mass and kinetic energy"), excerpt: quote },
+      { ...c("Speed and kinetic energy"), excerpt: quote },
+    ]);
+    expect(p.conceptsFor(new Set(["n.md"])).map((x) => x.id)).not.toContain(speed.id);
+  });
+  it("refuses to log or schedule a score that isn't a number", () => {
+    const p = new Progress(emptyProgress());
+    p.saveConcepts("n.md", "h", [c("A")]);
+    const x = p.data.concepts[0];
+    const before = { ...x };
+    expect(() => p.logAttempt(x.id, "quiz", NaN)).toThrow("progress wasn't changed");
+    expect(() => review(x, NaN)).toThrow("progress wasn't changed");
+    expect(x).toEqual(before);
+    expect(p.data.attempts).toEqual([]);
   });
   it("failing a review resets and counts a lapse", () => {
     const p = new Progress(emptyProgress());
@@ -220,6 +289,33 @@ describe("claude result parsing", () => {
       /nope/,
     );
     expect(() => parseResult("garbage", "boom", 1)).toThrow(/boom/);
+  });
+});
+
+describe("checking replies", () => {
+  const schema = {
+    type: "object",
+    properties: {
+      score: { type: "number" },
+      gaps: { type: "array", items: { type: "object", properties: { fix: { type: "string" } }, required: ["fix"] } },
+      misconception_id: { type: ["integer", "null"] },
+      mood: { type: "string", enum: ["happy"] },
+    },
+    required: ["score", "gaps", "misconception_id", "mood"],
+  };
+  const ok = { score: 80, gaps: [{ fix: "x" }], misconception_id: null, mood: "grumpy" };
+  it("accepts a reply with the right types, leaving enums to the code that uses it", () => {
+    expect(mismatch(schema, ok)).toBeNull();
+  });
+  it("finds a missing or mistyped field", () => {
+    const noScore: Record<string, unknown> = { ...ok };
+    delete noScore.score;
+    expect(mismatch(schema, noScore)).toBe("score");
+    expect(mismatch(schema, { ...ok, score: "80" })).toBe("score");
+    expect(mismatch(schema, { ...ok, score: NaN })).toBe("score");
+    expect(mismatch(schema, { ...ok, gaps: [{ fix: "x" }, {}] })).toBe("gaps[1].fix");
+    expect(mismatch(schema, { ...ok, misconception_id: 1.5 })).toBe("misconception_id");
+    expect(mismatch(schema, null)).toBe("");
   });
 });
 

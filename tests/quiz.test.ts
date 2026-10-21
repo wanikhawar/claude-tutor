@@ -451,8 +451,9 @@ describe("what goes with a request", () => {
 });
 
 describe("re-reading a note during a session", () => {
+  // A different idea replaces it: neither its name nor its quote is kept.
   const reread = (f: ReturnType<typeof setup>) =>
-    f.progress.saveConcepts("b.md", "hash:b2", [extracted("Renamed idea")]);
+    f.progress.saveConcepts("b.md", "hash:b2", [{ ...extracted("Other idea"), excerpt: "Other excerpt" }]);
 
   it("still makes a quiz planned before the re-read", async () => {
     const f = setup();
@@ -498,7 +499,7 @@ describe("re-reading a note during a session", () => {
     expect(f.b.lapses).toBe(0);
     expect(f.b.due).toBeNull();
     expect(f.progress.data.misconceptions).toEqual([]);
-    expect(f.progress.data.concepts.map((c) => c.name)).toEqual(["Shared idea", "Renamed idea"]);
+    expect(f.progress.data.concepts.map((c) => c.name)).toEqual(["Shared idea", "Other idea"]);
   });
 
   it("doesn't update a concept dropped while an explanation was being checked", async () => {

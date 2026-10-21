@@ -11,6 +11,8 @@ export function isDue(c: Concept, now = Date.now()) {
 
 /** Update scheduling from a 0..1 performance score (mutates and returns `c`). */
 export function review(c: Concept, score: number, now = new Date()): Concept {
+  // Clamping doesn't catch NaN, which would spread through the whole schedule.
+  if (!Number.isFinite(score)) throw new Error("Couldn't score that answer, so your progress wasn't changed.");
   score = Math.min(1, Math.max(0, score));
   const q = Math.round(score * 5);
   if (q < 3) {

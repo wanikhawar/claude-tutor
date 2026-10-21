@@ -47,6 +47,12 @@ function cleanQuestions(qs: string[] | undefined): string[] {
     .slice(0, 4);
 }
 
+/** Same words, ignoring case and spacing. */
+function sameText(a: string | undefined, b: string | undefined): boolean {
+  const norm = (s: string | undefined) => (s ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+  return norm(a) === norm(b);
+}
+
 /** The question to ask about a concept now: rotates through its questions on each review. */
 export function conceptQuestion(c: Concept): string {
   const qs = c.questions ?? [];
@@ -172,16 +178,32 @@ export class Progress {
   }
 
   /**
-   * Store freshly extracted concepts for a note. Progress on concepts whose name is
-   * unchanged is preserved; concepts that disappeared are removed.
+   * Store freshly extracted concepts for a note. A concept that's still there keeps its ID and
+   * progress: matched by name (ignoring case and spacing), else by the same supporting quote
+   * when it was renamed. Concepts that disappeared are removed.
    */
   saveConcepts(notePath: string, hash: string, list: ExtractedConcept[]) {
-    const keep = new Set<string>();
-    for (const e of list) {
+    const old = this.data.concepts.filter((c) => c.note_path === notePath);
+    const unmatched = new Set(old);
+    const take = (c: Concept | undefined) => {
+      if (c) unmatched.delete(c);
+      return c;
+    };
+    // All names first, so a quote match can't take a concept that another one is named after.
+    const matched = list.map((e) => take([...unmatched].find((c) => sameText(c.name, e.name))));
+    // A quote only says which concept it is when no other concept, old or new, quotes it too:
+    // otherwise progress and mistakes could move to a different idea from the same passage.
+    for (const [i, e] of list.entries()) {
+      if (matched[i] || !e.excerpt?.trim()) continue;
+      const before = old.filter((c) => sameText(c.excerpt, e.excerpt));
+      const now = list.filter((x) => sameText(x.excerpt, e.excerpt));
+      if (before.length === 1 && now.length === 1 && unmatched.has(before[0])) matched[i] = take(before[0]);
+    }
+    for (const [i, e] of list.entries()) {
       const name = e.name.trim();
-      keep.add(name);
-      const existing = this.data.concepts.find((c) => c.note_path === notePath && c.name === name);
+      const existing = matched[i];
       if (existing) {
+        existing.name = name;
         existing.summary = e.summary;
         existing.prerequisites = e.prerequisites ?? [];
         existing.excerpt = e.excerpt ?? "";
@@ -205,11 +227,8 @@ export class Progress {
         });
       }
     }
-    this.data.concepts = this.data.concepts.filter((c) => {
-      const gone = c.note_path === notePath && !keep.has(c.name);
-      if (gone) this.dropped.set(c.id, c);
-      return !gone;
-    });
+    for (const c of unmatched) this.dropped.set(c.id, c);
+    this.data.concepts = this.data.concepts.filter((c) => !unmatched.has(c));
     this.data.notes[notePath] = { hash, indexed_at: new Date().toISOString(), v: EXTRACT_VERSION };
     this.changed();
   }
@@ -255,6 +274,8 @@ export class Progress {
   }
 
   logAttempt(conceptId: number | null, kind: string, score: number) {
+    // Checked here too: it's logged before the review is scheduled.
+    if (!Number.isFinite(score)) throw new Error("Couldn't score that answer, so your progress wasn't changed.");
     this.data.attempts.push({ concept_id: conceptId, kind, score, ts: new Date().toISOString() });
     if (this.data.attempts.length > MAX_ATTEMPTS)
       this.data.attempts.splice(0, this.data.attempts.length - MAX_ATTEMPTS);
