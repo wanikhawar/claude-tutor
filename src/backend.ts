@@ -360,7 +360,10 @@ export class Backend {
     if (options.signal?.aborted) throw cancelled("Claude");
     const note = this.note(key);
     if (this.progress.isCurrent(key, note.hash)) return this.snapshot();
+    // This note's own concepts go separately, so a re-read keeps their names (and progress).
+    const current = this.progress.conceptsFor(new Set([key])).map((c) => c.name);
     const known = this.concepts()
+      .filter((c) => c.note_path !== key)
       .map((c) => c.name)
       .slice(0, 200);
     // All of the note, a piece at a time so a long one gets the same attention throughout.
@@ -372,7 +375,7 @@ export class Backend {
       // Removed from your library while an earlier part was read: send no more of it.
       if (!this.stillInLibrary(key)) return this.snapshot();
       const part = { index: i + 1, count: parts.length, earlier: list.map((c) => c.name) };
-      const { concepts } = await tutor.extractConcepts(options, note.title, text, known, part);
+      const { concepts } = await tutor.extractConcepts(options, note.title, text, known, part, current);
       if (options.signal?.aborted) throw cancelled("Claude");
       for (const c of concepts.slice(0, tutor.MAX_CONCEPTS)) {
         const name = c.name.trim().toLowerCase();

@@ -53,6 +53,16 @@ live("live Claude", () => {
 });
 
 live("live Claude: images and teaching", () => {
+  it("keeps the names of concepts a note still teaches when it's re-read", { timeout: 180_000 }, async () => {
+    // Worded unlike anything it would come up with itself, so a match means it reused them.
+    const current = ["KE formula: half m v squared", "Speed doubling gives four times the KE"];
+    const edited = `${NOTE}\nA parked car has no kinetic energy at all.`;
+    const { concepts } = await extractConcepts(opts, "Kinetic energy", edited, [], undefined, current);
+    console.log(concepts.map((x) => x.name).join("\n"));
+    const names = concepts.map((x) => x.name.trim());
+    for (const name of current) expect(names).toContain(name);
+  });
+
   it("grades handwritten-style working from an image", { timeout: 180_000 }, async () => {
     const png = join(tmpdir(), "ct-work.png");
     execFileSync("magick", [

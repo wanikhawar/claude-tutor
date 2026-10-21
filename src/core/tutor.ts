@@ -64,6 +64,8 @@ export function extractConcepts(
   body: string,
   known: string[],
   part: NotePart = { index: 1, count: 1, earlier: [] },
+  /** Names of the concepts taken from this note last time; the learner's progress is tied to them. */
+  current: string[] = [],
 ): Promise<{ concepts: ExtractedConcept[] }> {
   const schema = obj({
     concepts: {
@@ -86,6 +88,9 @@ export function extractConcepts(
           ? ` Concepts already taken from earlier parts (don't repeat them; use them as prerequisites where they fit): ${part.earlier.join("; ")}`
           : ""
       }\n`;
+  const currentNote = current.length
+    ? `\nConcepts taken from this note when it was last read: ${current.join("; ")}\nThe learner's progress is tied to these names. When ${text} still teaches one of them, use its name exactly as written here, even if you'd word it differently. Only a new idea gets a new name.\n`
+    : "";
   const prompt = `Extract the teachable concepts from ${text} so the learner can be taught and quizzed on them.
 
 - How many: let the content decide, not its length. Return one concept for each distinct idea the text actually teaches, ordered from foundational to advanced. A dense passage (a derivation, a multi-step mechanism, a comparison, a set of rules) can give several concepts from one paragraph; introductions, narrative, extra examples of an idea already covered, and repetition give none. Never pad, and never split one idea into several. At most ${MAX_CONCEPTS}.
@@ -97,7 +102,7 @@ export function extractConcepts(
 - \`excerpt\`: a verbatim quote from the note supporting the concept.
 
 Known concept names elsewhere in the library: ${known.length ? known.join("; ") : "(none yet)"}
-${partNote}
+${currentNote}${partNote}
 <note title="${title}">
 ${body}
 </note>`;

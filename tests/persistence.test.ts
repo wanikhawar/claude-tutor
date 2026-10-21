@@ -488,6 +488,23 @@ describe("vault folder renames", () => {
     expect(f.vault.cachedRead.mock.calls.some(([n]) => n.path.includes("private"))).toBe(false);
   });
 
+  it("lets a read of a renamed note wait for it under its new name while settings save", async () => {
+    const f = pluginFixture(["old.md"]);
+    f.settings.studyFolders = [];
+    f.settings.studyFiles = ["old.md"];
+    const saving = deferred<void>();
+    vi.spyOn(f.plugin, "saveData").mockReturnValue(saving.promise);
+    vi.spyOn(tutor, "extractConcepts").mockResolvedValue({ concepts: [extracted()] });
+    f.internals.registerVaultEvents();
+    f.files[0] = file("new.md");
+    const renamed = f.events.get("rename")!(f.files[0], "old.md");
+    // Saving the moved source is still under way, and the note is already being read again.
+    const reading = f.backend.indexNote("new.md");
+    saving.resolve();
+    await Promise.all([renamed, reading]);
+    expect(f.progress.noteHash("new.md")).toBeDefined();
+  });
+
   it("tells an open lesson where its notes moved, and lets it go on unless they left the library", async () => {
     const f = pluginFixture(["old/a.md", "old/b.md"]);
     f.settings.excludedFolders = ["hidden"];

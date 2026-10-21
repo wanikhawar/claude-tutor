@@ -386,9 +386,11 @@ export default class ClaudeTutorPlugin extends Plugin {
         }
         this.backend.renamed(oldPath, f.path);
         lib.removeFile(oldPath);
+        // Started before saving, so a read waiting for the new path (`waitForFile`) waits for this.
+        const reloading = f instanceof TFile ? lib.loadFile(f) : null;
         if (changed) await this.saveData(this.settings);
         if (this.unloaded) return;
-        if (f instanceof TFile) await lib.loadFile(f);
+        if (reloading) await reloading;
         else if (f instanceof TFolder) {
           for (const file of this.app.vault.getFiles()) {
             if (this.unloaded) return;

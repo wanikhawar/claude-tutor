@@ -2,12 +2,13 @@
 import type { Backend } from "../../backend";
 import type { TutorSettings } from "../../settings";
 import type { Provider } from "../../core/cli";
+import { remapPath } from "../../core/paths";
 import { isDue, isNew } from "../../core/srs";
 import { Notice } from "obsidian";
-import { api, errText, obsidianApp, setBackend, type Concept, type Mood, type Snapshot } from "./api";
+import { api, errText, isCancel, obsidianApp, setBackend, type Concept, type Mood, type Snapshot } from "./api";
 import { ConceptPicker, FolderPicker, NotePicker } from "./pickers";
 
-export { isDue, isNew };
+export { isNew };
 
 export type View =
   { name: "today" } | { name: "session" } | { name: "teach" } | { name: "mistakes" } | { name: "library" };
@@ -52,6 +53,16 @@ const SLEEP_AFTER_MS = 90_000;
 /** Wait this long after an edit before re-reading changed notes (you may still be typing). */
 const REINDEX_DELAY_MS = 20_000;
 
+/** Move the keys under a renamed file or folder to their new paths. */
+function remapKeys(keys: Set<string>, from: string, to: string) {
+  for (const key of [...keys]) {
+    const moved = remapPath(key, from, to);
+    if (moved === key) continue;
+    keys.delete(key);
+    keys.add(moved);
+  }
+}
+
 export class Store {
   snap = $state<Snapshot | null>(null);
   view = $state<View>({ name: "today" });
@@ -74,19 +85,35 @@ export class Store {
   line = $state("Hi, I'm Clawd! Let's learn something from your notes.");
   lineId = $state(0);
   sleeping = $state(false);
+  /**
+   * Moved on when the time alone changes what's due: a review falls due or a new day starts.
+   * Reading it (see `isDue`) keeps a view that stays open, like Today, up to date.
+   */
+  clock = $state(Date.now());
 
   // Rebuilt only when the snapshot changes, so lookups in templates don't scan every concept.
   private conceptById = $derived(new Map(this.concepts.map((c) => [c.id, c])));
   private noteByKey = $derived(new Map(this.notes.map((n) => [n.key, n])));
+  /** When `clock` next moves: the next review to fall due, or midnight. */
+  private nextChange = $derived.by(() => {
+    const midnight = new Date(this.clock);
+    midnight.setHours(24, 0, 0, 0);
+    let next = midnight.getTime();
+    for (const c of this.concepts) {
+      const due = c.due ? Date.parse(c.due) : NaN;
+      if (due > this.clock && due < next) next = due;
+    }
+    return next;
+  });
 
   private settings!: () => TutorSettings;
   private saveSettings!: () => Promise<void>;
   private moodAt = Date.now();
   private lastActivity = Date.now();
-  private declinedBulk = false;
-  /** The edited notes the confirmation is asking about, and the ones you said yes to. */
+  /** The edited notes the confirmation is asking about, and the ones you said yes or no to. */
   private askedBulk: string[] = [];
   private approvedBulk = new Set<string>();
+  private declinedBulk = new Set<string>();
   /**
    * Notes you picked for Clawd to read that it hasn't read yet. Once read, a note is like any
    * other: edits to it are re-read only as the auto re-read and confirmation settings say.
@@ -115,14 +142,20 @@ export class Store {
     this.plan = null;
     this.currentConceptId = null;
     this.view = { name: "today" };
-    this.declinedBulk = false;
+    this.clock = Date.now();
     this.askedBulk = [];
     this.approvedBulk = new Set();
+    this.declinedBulk = new Set();
     this.picked = new Set();
     setBackend(backend);
     this.settings = settings;
     this.saveSettings = saveSettings;
-    this.unsubscribe = backend.subscribe(() => this.onLibraryChange());
+    const unsubscribe = backend.subscribe(() => this.onLibraryChange());
+    const unfollow = backend.onRename((from, to) => this.onRename(from, to));
+    this.unsubscribe = () => {
+      unsubscribe();
+      unfollow();
+    };
     this.ticker = window.setInterval(() => this.tick(), 1000);
   }
 
@@ -279,6 +312,12 @@ export class Store {
       this.moodAt = now;
     }
     if (!this.sleeping && this.mood === "idle" && now - this.lastActivity > SLEEP_AFTER_MS) this.sleeping = true;
+    if (now >= this.nextChange) {
+      const newDay = new Date(now).toDateString() !== new Date(this.clock).toDateString();
+      this.clock = now;
+      // The week's activity and the streak are counted when the snapshot is taken.
+      if (newDay) void this.refresh();
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -304,6 +343,22 @@ export class Store {
       if (this.timer) window.clearTimeout(this.timer);
       this.timer = window.setTimeout(() => void this.indexAll(), first ? 0 : REINDEX_DELAY_MS);
     });
+  }
+
+  /** A renamed note is still the same note: it stays picked, approved, declined or failed. */
+  private onRename(from: string, to: string) {
+    for (const keys of [this.picked, this.approvedBulk, this.declinedBulk, this.failedReads]) remapKeys(keys, from, to);
+    this.askedBulk = this.askedBulk.map((key) => remapPath(key, from, to));
+  }
+
+  /**
+   * Note keys that follow renames until `stop()`: a note renamed while a command waits for a
+   * read is still the note you asked about.
+   */
+  private follow(keys: string[]) {
+    const live = [...keys];
+    const stop = api.onRename((from, to) => live.forEach((key, i) => (live[i] = remapPath(key, from, to))));
+    return { keys: live, stop };
   }
 
   /**
@@ -332,6 +387,7 @@ export class Store {
     this.failedReads.delete(key);
     this.picked.delete(key);
     this.approvedBulk.delete(key);
+    this.declinedBulk.delete(key);
   }
 
   /** Read the notes you picked (and finish any earlier picks that haven't been read yet). */
@@ -347,49 +403,63 @@ export class Store {
     const read = new Set<string>();
     // Notes you picked or approved are read. Lots of other edited ones wait for your OK, but don't hold up the rest.
     const next = () => {
-      const all = this.queue().filter((n) => !read.has(n.key));
       const approved = (key: string) => this.picked.has(key) || this.approvedBulk.has(key);
+      // Edited notes you said "Not now" to wait until you ask for them, however few are left.
+      const all = this.queue().filter((n) => !read.has(n.key) && (approved(n.key) || !this.declinedBulk.has(n.key)));
       const edited = all.filter((n) => !approved(n.key));
       if (edited.length <= limit) {
         this.confirmCount = null;
-        return all;
+        return all.map((n) => n.key);
       }
       this.askedBulk = edited.map((n) => n.key);
-      if (!this.declinedBulk) this.confirmCount = edited.length;
-      return all.filter((n) => approved(n.key));
+      this.confirmCount = edited.length;
+      return all.filter((n) => approved(n.key)).map((n) => n.key);
     };
     let queue = next();
     if (!queue.length) return;
-    this.indexError = null;
-    let done = 0;
-    let total = queue.length;
-    this.say("curious", `Reading ${total} note${total > 1 ? "s" : ""}…`);
-    while (queue.length) {
-      for (const note of queue) {
-        if (!this.active(generation)) return;
-        this.indexing = { done, total, current: note.title };
-        read.add(note.key);
-        try {
-          const snap = await api.indexNote(note.key, this.reading.signal);
+    // A note renamed while it waits is read under its new name.
+    const unfollow = api.onRename((from, to) => {
+      queue = queue.map((key) => remapPath(key, from, to));
+      remapKeys(read, from, to);
+    });
+    try {
+      this.indexError = null;
+      let done = 0;
+      let total = queue.length;
+      this.say("curious", `Reading ${total} note${total > 1 ? "s" : ""}…`);
+      while (queue.length) {
+        for (let i = 0; i < queue.length; i++) {
           if (!this.active(generation)) return;
-          this.snap = snap;
-          if (!snap.notes.find((n) => n.key === note.key)?.stale) this.readDone(note.key);
-        } catch (e) {
-          if (!this.active(generation)) return;
-          this.failedReads.add(note.key);
-          this.indexError = errText(e);
-          this.indexing = null;
-          this.say("confused", "I got stuck reading one of your notes.");
-          return;
+          const key = queue[i];
+          const note = this.note(key);
+          // Moved out of the library, or not loaded under its new name yet: a later pass reads it.
+          if (!note) continue;
+          this.indexing = { done, total, current: note.title };
+          read.add(key);
+          try {
+            const snap = await api.indexNote(key, this.reading.signal);
+            if (!this.active(generation)) return;
+            this.snap = snap;
+            if (!snap.notes.find((n) => n.key === key)?.stale) this.readDone(key);
+          } catch (e) {
+            if (!this.active(generation)) return;
+            this.failedReads.add(key);
+            this.indexError = errText(e);
+            this.indexing = null;
+            this.say("confused", "I got stuck reading one of your notes.");
+            return;
+          }
+          done++;
         }
-        done++;
+        // Other notes edited while we were reading get picked up too.
+        queue = next();
+        total = done + queue.length;
       }
-      // Other notes edited while we were reading get picked up too.
-      queue = next();
-      total = done + queue.length;
+      this.indexing = null;
+      this.say("proud", `All read! I know ${this.concepts.length} concepts from your notes.`);
+    } finally {
+      unfollow();
     }
-    this.indexing = null;
-    this.say("proud", `All read! I know ${this.concepts.length} concepts from your notes.`);
   }
 
   /** Pick a note or PDF from the vault and add it on its own. */
@@ -442,47 +512,63 @@ export class Store {
       for (const key of this.askedBulk) this.approvedBulk.add(key);
       void this.indexAll();
     } else {
-      this.declinedBulk = true;
+      for (const key of this.askedBulk) this.declinedBulk.add(key);
       this.say("happy", "No problem. I'll leave your edited notes as they are until you ask me to re-read them.");
     }
   }
 
-  async indexOne(key: string) {
+  async indexOne(requested: string) {
     const generation = this.generation;
-    while (this.indexTask && this.active(generation)) await this.indexTask;
-    if (!this.active(generation)) return false;
-    return this.runIndex(async () => {
-      this.indexError = null;
-      try {
-        await this.refresh();
-        if (!this.active(generation)) return false;
-        const note = this.note(key);
-        // A bulk read may already have brought this note up to date while we waited.
-        if (note && !note.stale) {
-          this.readDone(key);
-          return true;
-        }
-        this.indexing = { done: 0, total: 1, current: note?.title ?? key };
-        for (let attempt = 0; attempt < 3; attempt++) {
-          const snap = await api.indexNote(key, this.reading.signal);
+    const followed = this.follow([requested]);
+    const key = () => followed.keys[0];
+    try {
+      while (this.indexTask && this.active(generation)) await this.indexTask;
+      if (!this.active(generation)) return false;
+      return await this.runIndex(async () => {
+        this.indexError = null;
+        try {
+          await this.refresh();
           if (!this.active(generation)) return false;
-          this.snap = snap;
-          const current = snap.notes.find((n) => n.key === key);
-          if (!current) throw new Error("That note is no longer in the library.");
-          if (!current.stale) {
-            this.readDone(key);
+          const note = this.note(key());
+          // A bulk read may already have brought this note up to date while we waited.
+          if (note && !note.stale) {
+            this.readDone(key());
             return true;
           }
+          this.indexing = { done: 0, total: 1, current: note?.title ?? key() };
+          for (let attempt = 0; attempt < 3; attempt++) {
+            const reading = key();
+            // Renamed while it was read, or while its file was: read it again under the new name.
+            const renamed = () => key() !== reading;
+            let snap: Snapshot;
+            try {
+              snap = await api.indexNote(reading, this.reading.signal);
+            } catch (e) {
+              if (renamed() && !isCancel(e)) continue;
+              throw e;
+            }
+            if (!this.active(generation)) return false;
+            this.snap = snap;
+            const current = snap.notes.find((n) => n.key === key());
+            if (!current && renamed()) continue;
+            if (!current) throw new Error("That note is no longer in the library.");
+            if (!current.stale) {
+              this.readDone(key());
+              return true;
+            }
+          }
+          throw new Error("That note keeps changing. Finish editing, then retry reading it.");
+        } catch (e) {
+          if (this.active(generation)) {
+            this.failedReads.add(key());
+            this.indexError = errText(e);
+          }
+          return false;
         }
-        throw new Error("That note keeps changing. Finish editing, then retry reading it.");
-      } catch (e) {
-        if (this.active(generation)) {
-          this.failedReads.add(key);
-          this.indexError = errText(e);
-        }
-        return false;
-      }
-    });
+      });
+    } finally {
+      followed.stop();
+    }
   }
 
   /** Retry the failed notes explicitly, even when automatic re-reading is disabled. */
@@ -510,18 +596,28 @@ export class Store {
   }
 
   /** From a command or file menu: read the note if needed, then quiz or explain it. */
-  async studyNote(keys: string[], mode: "quiz" | "explain", request = this.beginStudyRequest()) {
+  async studyNote(requested: string[], mode: "quiz" | "explain", request = this.beginStudyRequest()) {
+    const followed = this.follow(requested);
+    try {
+      await this.studyFollowed(followed.keys, mode, request);
+    } finally {
+      followed.stop();
+    }
+  }
+
+  /** `studyNote` with `keys` kept up to date as notes are renamed. */
+  private async studyFollowed(keys: string[], mode: "quiz" | "explain", request: number) {
     const generation = this.generation;
     const current = () => this.active(generation) && this.isCurrentStudyRequest(request);
     if (!current()) return;
     this.error = null;
     await this.refresh();
     if (!current()) return;
-    for (const key of keys) {
-      const n = this.note(key);
+    for (let i = 0; i < keys.length; i++) {
+      const n = this.note(keys[i]);
       if (!n || n.stale) {
-        this.say("thinking", `Reading “${n?.title ?? key}” first…`);
-        const success = await this.indexOne(key);
+        this.say("thinking", `Reading “${n?.title ?? keys[i]}” first…`);
+        const success = await this.indexOne(keys[i]);
         if (!current()) return;
         if (!success) {
           this.say("confused", "I couldn't read that note.");
@@ -552,10 +648,15 @@ export class Store {
   // -------------------------------------------------------------------------
   // Planning
 
+  /** Due now, for views: recomputed when a review falls due, not only when progress changes. */
+  isDue(c: Concept): boolean {
+    void this.clock; // read for the dependency; the time is checked fresh
+    return isDue(c);
+  }
+
   dueConcepts(): Concept[] {
-    const now = Date.now();
     return this.concepts
-      .filter((c) => isDue(c, now))
+      .filter((c) => this.isDue(c))
       .sort((a, b) => {
         if (isNew(a) !== isNew(b)) return isNew(a) ? 1 : -1;
         return (a.due ?? "").localeCompare(b.due ?? "");

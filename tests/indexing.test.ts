@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as tutor from "../src/core/tutor";
 import { Store } from "../src/ui/lib/store.svelte";
-import { deferred, extracted, fixture } from "./helpers";
+import { deferred, extracted, fixture, note } from "./helpers";
 
 let state: Store;
 afterEach(() => {
@@ -20,6 +20,15 @@ async function setup(paths?: string[]) {
   );
   await state.refresh();
   return f;
+}
+
+/** What the vault's rename event does: progress and listeners first, then the note is read again. */
+function rename(f: ReturnType<typeof fixture>, from: string, to: string) {
+  const file = f.files.find((x) => x.path === from)!;
+  file.path = to;
+  f.backend.renamed(from, to);
+  f.library.removeFile(from);
+  void f.library.loadFile(file);
 }
 
 describe("requested note reads", () => {
@@ -320,6 +329,100 @@ describe("choosing what Clawd reads", () => {
     expect(state.confirmCount).toBe(2);
   });
 
+  it("leaves notes you said Not now to alone, even once fewer are left than it asks about", async () => {
+    const f = await setup(["a.md", "b.md", "c.md", "d.md"]);
+    f.settings.confirmAbove = 2;
+    for (const key of ["a.md", "b.md", "c.md"]) f.progress.saveConcepts(key, "old-hash", [extracted()]);
+    await state.refresh();
+    const extract = vi.spyOn(tutor, "extractConcepts").mockResolvedValue({ concepts: [extracted()] });
+    await state.indexAll();
+    expect(state.confirmCount).toBe(3);
+    state.confirmBulk(false);
+    // You re-read one yourself: two are left, few enough not to ask about, but you said no.
+    expect(await state.indexOne("a.md")).toBe(true);
+    await state.indexAll();
+    expect(extract.mock.calls.map(([, title]) => title)).toEqual(["a.md"]);
+    expect(state.confirmCount).toBeNull();
+    // A note edited later is a new question, counted on its own.
+    await state.readSelected(["d.md"]);
+    f.library.notes.get("d.md")!.hash = "edited";
+    await state.refresh();
+    await state.indexAll();
+    expect(extract.mock.calls.map(([, title]) => title)).toEqual(["a.md", "d.md", "d.md"]);
+    expect(state.note("b.md")?.stale).toBe(true);
+    expect(state.note("c.md")?.stale).toBe(true);
+  });
+
+  it("reads a picked note renamed while another is being read, under its new name", async () => {
+    const f = await setup(["a.md", "b.md"]);
+    const extract = vi.spyOn(tutor, "extractConcepts").mockImplementation(async (_, title) => {
+      if (title === "a.md") {
+        // What the vault's rename event does: progress and listeners first, then the library.
+        f.files.find((x) => x.path === "b.md")!.path = "moved/b.md";
+        f.backend.renamed("b.md", "moved/b.md");
+        f.library.notes.delete("b.md");
+        f.library.notes.set("moved/b.md", note("moved/b.md", "Content from b.md"));
+      }
+      return { concepts: [extracted()] };
+    });
+    await state.readSelected(["a.md", "b.md"]);
+    expect(extract.mock.calls.map(([, title]) => title)).toEqual(["a.md", "moved/b.md"]);
+    expect(state.indexError).toBeNull();
+    expect(state.note("moved/b.md")?.stale).toBe(false);
+  });
+
+  it("starts a quiz on a note renamed while it waited for another read", async () => {
+    const f = await setup(["a.md", "b.md"]);
+    const first = deferred<{ concepts: ReturnType<typeof extracted>[] }>();
+    const extract = vi
+      .spyOn(tutor, "extractConcepts")
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValue({ concepts: [extracted("B idea")] });
+    const bulk = state.readSelected(["a.md"]);
+    const study = state.studyNote(["b.md"], "quiz");
+    await Promise.resolve();
+    rename(f, "b.md", "moved/b.md");
+    first.resolve({ concepts: [extracted("A idea")] });
+    await Promise.all([bulk, study]);
+    expect(extract).toHaveBeenCalledTimes(2);
+    expect(state.error).toBeNull();
+    expect(state.plan?.title).toBe("Quiz: b");
+    const ids = state.plan?.steps[0].kind === "quiz" ? state.plan.steps[0].conceptIds : [];
+    expect(ids.map((id) => f.progress.concept(id)?.note_path)).toEqual(["moved/b.md"]);
+  });
+
+  it("reads a note again under its new name when it's renamed during the read", async () => {
+    const f = await setup(["a.md", "b.md"]);
+    const extract = vi.spyOn(tutor, "extractConcepts").mockImplementation(async () => {
+      if (extract.mock.calls.length === 1) rename(f, "b.md", "moved/b.md");
+      return { concepts: [extracted()] };
+    });
+    await state.studyNote(["b.md"], "explain");
+    expect(extract).toHaveBeenCalledTimes(2);
+    expect(state.error).toBeNull();
+    expect(state.note("moved/b.md")?.stale).toBe(false);
+    expect(state.plan).not.toBeNull();
+  });
+
+  it("reads a note under its new name when it's renamed while its file is still being read", async () => {
+    const f = await setup(["a.md", "b.md"]);
+    const extract = vi.spyOn(tutor, "extractConcepts").mockResolvedValue({ concepts: [extracted()] });
+    const raw = deferred<string>();
+    f.vault.cachedRead.mockReturnValueOnce(raw.promise);
+    const loading = f.library.loadFile(f.files[1]);
+    const study = state.studyNote(["b.md"], "quiz");
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(extract).not.toHaveBeenCalled();
+    rename(f, "b.md", "moved/b.md");
+    raw.resolve("# b\nStale content");
+    await loading;
+    await study;
+    expect(state.error).toBeNull();
+    expect(extract).toHaveBeenCalledTimes(1);
+    expect(extract.mock.calls[0][2]).toContain("Content from moved/b.md");
+    expect(state.plan?.title).toBe("Quiz: b");
+  });
+
   it("keeps a pick whose read failed, and reads it on the next pass", async () => {
     const f = await setup(["a.md", "b.md"]);
     f.settings.autoIndex = false;
@@ -462,6 +565,17 @@ describe("reading a long note", () => {
       { index: 3, count: 3, earlier: ["First idea", "Second idea"] },
     ]);
     expect(f.progress.data.concepts.map((c) => c.name)).toEqual(["First idea", "Second idea", "Third idea"]);
+  });
+
+  it("names this note's own concepts apart from the library's, so a re-read can keep them", async () => {
+    const f = await setup(["a.md", "b.md"]);
+    f.progress.saveConcepts("a.md", "old-hash", [extracted("Own idea")]);
+    f.progress.saveConcepts("b.md", "hash:b.md", [extracted("Other idea")]);
+    const extract = vi.spyOn(tutor, "extractConcepts").mockResolvedValue({ concepts: [extracted("Own idea")] });
+    await f.backend.indexNote("a.md");
+    const [, , , known, , current] = extract.mock.calls[0];
+    expect(known).toEqual(["Other idea"]);
+    expect(current).toEqual(["Own idea"]);
   });
 
   it.each([
