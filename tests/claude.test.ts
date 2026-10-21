@@ -73,10 +73,11 @@ describe("Claude process lifecycle", () => {
   });
 
   it("rejects a plain-text reply that's missing a field, rather than handing on NaN", async () => {
-    const result = { type: "result", subtype: "success", result: 'Here you go: {"passed": true}' };
-    const opts = await executable(
-      `process.stdin.resume(); process.stdin.on("end", () => console.log(${JSON.stringify(JSON.stringify(result))}));`,
-    );
+    const opts = await executable(`
+      const result = { type: "result", subtype: "success", result: 'Here you go: {"passed": true}' };
+      process.stdin.resume();
+      process.stdin.on("end", () => console.log(JSON.stringify(result)));
+    `);
     const schema = {
       type: "object",
       properties: { score: { type: "number" }, passed: { type: "boolean" } },
