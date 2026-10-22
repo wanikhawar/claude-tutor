@@ -20,7 +20,7 @@ What it does:
 ### What's different in Obsidian
 
 - **The library is your vault.** On first run you pick study folders, and you can change them in settings. Right-click any note → **Quiz me on this** / **Explain it to Clawd** to study a single note.
-- **Notes stay in sync.** Clawd never reads a note you haven't picked: after adding a folder, you tick the notes you want read on the Today tab. Notes it has already read are re-read in the background after you edit them (can be turned off), and renames keep your progress. Before re-reading many notes at once (25 by default), Clawd asks first, since each one is a Claude request.
+- **Notes stay in sync.** Clawd never reads a note you haven't picked: after adding a folder, you tick the notes you want read on the Today tab. Notes it has already read are re-read in the background after you edit them (can be turned off), and renames keep your progress, as does a long PDF whose page ranges shift (a new range stays picked only if you'd picked all its pages). Before re-reading many notes at once (25 by default), Clawd asks first, since each one is a Claude request.
 - **Notes open in Obsidian.** Clicking a source opens the real note, or the PDF at its page, in a new tab.
 - **It looks like your theme.** Colours, fonts and light/dark mode follow Obsidian.
 - **Shortcuts stay in the tutor tab.** They only work while it's focused, so they don't clash with your hotkeys.

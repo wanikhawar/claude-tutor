@@ -1,6 +1,7 @@
 import { vi } from "vitest";
 import { TFile, TFolder, type App } from "obsidian";
 import { Backend } from "../src/backend";
+import { sha256 } from "../src/core/hash";
 import { Library } from "../src/library";
 import { Progress, emptyProgress } from "../src/core/progress";
 import { DEFAULT_SETTINGS } from "../src/settings";
@@ -53,6 +54,18 @@ export function file(path: string): TFile {
     name: path.split("/").at(-1)!,
     basename: path.split("/").at(-1)!.replace(/\.md$/, ""),
   });
+}
+/** A PDF in `f`'s vault whose cached text is `pages`, each about half a part long unless `filler` says otherwise. */
+export function pdf(f: ReturnType<typeof fixture>, path: string, pages: string[], filler = 1_900): TFile {
+  const pdf = Object.assign(file(path), {
+    extension: "pdf",
+    basename: path.replace(/\.pdf$/, ""),
+    stat: { size: 1, mtime: 1, ctime: 1 },
+  });
+  f.files.push(pdf);
+  const text = pages.map((p) => `${p} ${"filler ".repeat(filler)}`);
+  f.disk.set(`cache/${sha256(`${path}|1|1`).slice(0, 32)}.json`, JSON.stringify(text));
+  return pdf;
 }
 export function folder(path: string): TFolder {
   return Object.assign(new TFolder(), { path, name: path.split("/").at(-1)! });

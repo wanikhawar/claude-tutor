@@ -80,6 +80,7 @@ export const api = {
   ) => backend.teach(topic, sources, history, message, images, signal),
   saveLesson: (topic: string, summary: string, sources: string[]) => backend.saveLesson(topic, summary, sources),
   onRename: (fn: (oldPath: string, newPath: string) => void) => backend.onRename(fn),
+  onRepartition: (fn: (replace: (key: string) => string[]) => void) => backend.onRepartition(fn),
   resolveMistake: async (id: number) => backend.resolveMistake(id),
   reopenMistake: async (id: number) => backend.reopenMistake(id),
 };

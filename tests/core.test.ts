@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { chunks, clip, parseMarkdown, resolveWikilinks, splitFrontmatter } from "../src/core/notes";
-import { cleanPage, split, PART_CHARS } from "../src/core/pdf";
+import { cleanPage, pdfjsPages, split, PART_CHARS } from "../src/core/pdf";
 import { EXTRACT_VERSION, Progress, conceptQuestion, emptyProgress } from "../src/core/progress";
 import { review } from "../src/core/srs";
 import { modelLabel, parseResult } from "../src/core/claude";
 import { mismatch } from "../src/core/providers";
 import { DEFAULT_SETTINGS, TutorSettingTab, ensureModels, modelName } from "../src/settings";
 import { statusGap } from "../src/view";
+import type { Note } from "../src/core/types";
 
 describe("notes", () => {
   it("strips frontmatter", () => {
@@ -64,6 +65,13 @@ describe("pdf", () => {
       [4, 4],
     ]);
     expect(parts[1].text.startsWith("[Page 2]")).toBe(true);
+  });
+  it("closes the pdf.js document when a page fails", async () => {
+    const destroy = vi.fn(async () => {});
+    const doc = { numPages: 2, getPage: () => Promise.reject(new Error("bad page")), destroy };
+    const pdfjs = { getDocument: () => ({ promise: Promise.resolve(doc) }) };
+    await expect(pdfjsPages(pdfjs, new Uint8Array())).rejects.toThrow("bad page");
+    expect(destroy).toHaveBeenCalledOnce();
   });
   it("keeps short documents in one part", () => {
     expect(split(["a", "b"])).toEqual([{ first: 1, last: 2, text: "[Page 1]\n\na\n\n[Page 2]\n\nb" }]);
@@ -186,6 +194,121 @@ describe("progress + srs", () => {
     expect(p.data.concepts.map((x) => x.note_path)).toEqual(["b/book.pdf#p1-9", "b/sub/x.md", "another/y.md"]);
     expect(p.noteHash("b/book.pdf#p1-9")).toBe("h");
     expect(p.noteHash("a/sub/x.md")).toBeUndefined();
+  });
+  describe("PDF parts that change page ranges", () => {
+    const quoted = (name: string, excerpt: string) => ({ ...c(name), excerpt });
+    const part = (path: string, first: number, last: number, body: string): Note => ({
+      key: `${path}#p${first}-${last}`,
+      path,
+      title: path,
+      body,
+      hash: `h${first}`,
+      links: [],
+      kind: "pdf",
+      group: path,
+      pages: [first, last],
+    });
+
+    it("moves concepts by their quote, and keeps a fully picked PDF picked", () => {
+      const p = new Progress(emptyProgress());
+      p.saveConcepts("book.pdf#p1-10", "h", [quoted("TCP", "TCP keeps a byte stream ordered")]);
+      p.saveConcepts("book.pdf#p11-20", "h", [quoted("UDP", "UDP sends datagrams")]);
+      const [tcp, udp] = p.data.concepts;
+      review(udp, 0.9);
+      p.reconcileParts("book.pdf", [
+        part("book.pdf", 1, 8, "Intro. tcp keeps a byte\nstream ordered."),
+        part("book.pdf", 9, 20, "UDP sends datagrams."),
+      ]);
+      expect([tcp.note_path, udp.note_path]).toEqual(["book.pdf#p1-8", "book.pdf#p9-20"]);
+      expect(udp.reps).toBe(1);
+      expect(Object.keys(p.data.notes).sort()).toEqual(["book.pdf#p1-8", "book.pdf#p9-20"]);
+      // Read again, since the text moved.
+      expect(p.isCurrent("book.pdf#p1-8", "h1")).toBe(false);
+    });
+
+    it("doesn't guess a part for a concept its quote can't place, so a re-read can't drop it", () => {
+      const p = new Progress(emptyProgress());
+      p.saveConcepts("book.pdf#p1-10", "h", [c("No quote")]);
+      const [idea] = p.data.concepts;
+      review(idea, 0.9);
+      const parts = [part("book.pdf", 1, 8, "Intro"), part("book.pdf", 9, 20, "Where the idea is now")];
+      p.reconcileParts("book.pdf", parts);
+      expect(idea.note_path).toBe("book.pdf#p1-10");
+      const former = () => p.formerParts("book.pdf", new Set(parts.map((n) => n.key)));
+      // The part that overlaps it most doesn't have it, and the one that does is read later.
+      p.saveConcepts("book.pdf#p1-8", "h1", [c("Intro idea")], former());
+      expect(idea.note_path).toBe("book.pdf#p1-10");
+      p.saveConcepts("book.pdf#p9-20", "h9", [c("No quote")], former());
+      expect(p.data.concepts.find((x) => x.name === "No quote")).toBe(idea);
+      expect([idea.note_path, idea.reps]).toEqual(["book.pdf#p9-20", 1]);
+    });
+
+    it("remembers picked pages through repeated splits", () => {
+      const p = new Progress(emptyProgress());
+      p.saveConcepts("book.pdf#p1-10", "h", [c("A")]);
+      // Pages 11-15 weren't picked, so 6-15 isn't, and 6-10 are only picked through the old record.
+      p.reconcileParts("book.pdf", [part("book.pdf", 1, 5, "a"), part("book.pdf", 6, 15, "b")]);
+      expect(p.noteHash("book.pdf#p6-15")).toBeUndefined();
+      expect(p.noteHash("book.pdf#p1-10")).toBe("h");
+      p.reconcileParts("book.pdf", [
+        part("book.pdf", 1, 5, "a"),
+        part("book.pdf", 6, 10, "b"),
+        part("book.pdf", 11, 15, "c"),
+      ]);
+      expect(p.noteHash("book.pdf#p6-10")).toBe("");
+      expect(p.noteHash("book.pdf#p11-15")).toBeUndefined();
+      // Every page it covered is in a picked part now.
+      expect(p.noteHash("book.pdf#p1-10")).toBeUndefined();
+    });
+
+    it("keeps a PDF read as one part picked when it splits", () => {
+      const p = new Progress(emptyProgress());
+      p.saveConcepts("book.pdf", "h", [quoted("Late idea", "Only on the last page")]);
+      p.reconcileParts("book.pdf", [
+        part("book.pdf", 1, 30, "Start"),
+        part("book.pdf", 31, 40, "Only on the last page"),
+      ]);
+      expect(p.data.concepts[0].note_path).toBe("book.pdf#p31-40");
+      expect(p.noteHash("book.pdf#p1-30")).toBe("");
+      expect(p.noteHash("book.pdf")).toBeUndefined();
+    });
+
+    it("doesn't pick a part with pages you didn't pick, and moves its concepts once it's read", () => {
+      const p = new Progress(emptyProgress());
+      // Pages 11-20 were a part you never picked.
+      p.saveConcepts("book.pdf#p1-10", "h", [quoted("Flow control", "Window size limits the sender")]);
+      const [flow] = p.data.concepts;
+      review(flow, 0.9);
+      p.reconcileParts("book.pdf", [
+        part("book.pdf", 1, 5, "Intro"),
+        part("book.pdf", 6, 15, "Window size limits the sender"),
+        part("book.pdf", 16, 20, "Unpicked text"),
+      ]);
+      expect(p.noteHash("book.pdf#p1-5")).toBe("");
+      expect(p.noteHash("book.pdf#p6-15")).toBeUndefined();
+      expect(p.noteHash("book.pdf#p16-20")).toBeUndefined();
+      // Its part isn't picked, so it stays (out of the library) until that part is.
+      expect(flow.note_path).toBe("book.pdf#p1-10");
+      expect(p.formerParts("book.pdf", new Set(["book.pdf#p1-5", "book.pdf#p6-15", "book.pdf#p16-20"]))).toEqual([
+        "book.pdf#p1-10",
+      ]);
+      p.saveConcepts("book.pdf#p6-15", "h6", [c("flow control"), c("New idea")], ["book.pdf#p1-10"]);
+      expect(flow.note_path).toBe("book.pdf#p6-15");
+      expect(flow.reps).toBe(1);
+      expect(p.data.concepts.map((x) => x.name)).toEqual(["flow control", "New idea"]);
+    });
+
+    it("doesn't drop a former part's concepts when another part is read", () => {
+      const p = new Progress(emptyProgress());
+      p.saveConcepts("book.pdf#p1-10", "h", [c("A")]);
+      p.saveConcepts("book.pdf#p11-20", "h", [c("B")]);
+      p.saveConcepts("book.pdf#p1-5", "h", [c("C")], ["book.pdf#p11-20"]);
+      expect(p.data.concepts.map((x) => [x.name, x.note_path])).toEqual([
+        ["A", "book.pdf#p1-10"],
+        ["B", "book.pdf#p11-20"],
+        ["C", "book.pdf#p1-5"],
+      ]);
+    });
   });
   it("rotates focused questions across reviews", () => {
     const p = new Progress(emptyProgress());

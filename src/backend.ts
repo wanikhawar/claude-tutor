@@ -5,6 +5,7 @@ import { cancelled, type Provider, type RequestOptions } from "./core/cli";
 import { listModels } from "./core/providers";
 import { inertMarkdown } from "./core/inert";
 import { chunks, clip, headings } from "./core/notes";
+import { overlaps, pageRange } from "./core/paths";
 import { PART_CHARS } from "./core/pdf";
 import { Progress } from "./core/progress";
 import { review } from "./core/srs";
@@ -20,6 +21,7 @@ import {
   type Gap,
   type Grade,
   type ImageInput,
+  type Note,
   type NoteKind,
   type TeachReply,
   type Question,
@@ -173,6 +175,7 @@ function shares(lengths: number[], total: number): number[] {
 export class Backend {
   private listeners = new Set<() => void>();
   private renameListeners = new Set<(oldPath: string, newPath: string) => void>();
+  private partListeners = new Set<(replace: (key: string) => string[]) => void>();
   private requests = new AbortController();
 
   constructor(
@@ -183,12 +186,15 @@ export class Backend {
     private cliCwd: string,
     private openSettingsTab: () => void,
     private saveSettings: () => Promise<void>,
-  ) {}
+  ) {
+    library.onPdfParts = (path, parts) => this.repartitioned(path, parts);
+  }
 
   dispose() {
     this.requests.abort();
     this.listeners.clear();
     this.renameListeners.clear();
+    this.partListeners.clear();
     this.library.dispose();
   }
 
@@ -214,6 +220,31 @@ export class Backend {
   renamed(oldPath: string, newPath: string) {
     this.progress.rename(oldPath, newPath);
     for (const fn of this.renameListeners) fn(oldPath, newPath);
+  }
+
+  /**
+   * Follow a PDF read into new page ranges: for what holds on to its parts' keys, like an open
+   * lesson. `replace` gives the keys to hold instead of one.
+   */
+  onRepartition(fn: (replace: (key: string) => string[]) => void): () => void {
+    this.partListeners.add(fn);
+    return () => this.partListeners.delete(fn);
+  }
+
+  /** A PDF was read into parts, which may not be the page ranges it had: progress moves to them, and so do their holders. */
+  private repartitioned(path: string, parts: Note[]) {
+    this.progress.reconcileParts(path, parts);
+    const keys = new Set(parts.map((n) => n.key));
+    // A former part becomes the picked parts that share its pages: only those may go with a request in its place.
+    // With none, it stays: a lesson's history may quote it, so it's still checked before each turn.
+    const replace = (key: string) => {
+      if ((key !== path && !key.startsWith(`${path}#p`)) || keys.has(key)) return [key];
+      const picked = parts.filter(
+        (n) => this.progress.noteHash(n.key) !== undefined && overlaps(n.pages ?? pageRange(n.key), pageRange(key)),
+      );
+      return picked.length ? picked.map((n) => n.key) : [key];
+    };
+    for (const fn of this.partListeners) fn(replace);
   }
 
   /** Ask a CLI which models it offers and remember the answer. */
@@ -270,8 +301,9 @@ export class Backend {
     return n ? [n.title, passages(n.body, budget, queryWords(query))] : ["", ""];
   }
 
+  /** Not ones whose source was just removed, before the rescan drops them: their names go with requests. */
   private concepts(): Concept[] {
-    return this.progress.conceptsFor(new Set(this.library.notes.keys()));
+    return this.progress.conceptsFor(new Set([...this.library.notes.keys()].filter((k) => this.stillInLibrary(k))));
   }
 
   /** Whether a note is still in your library: its source wasn't removed or excluded, and the file is still there. */
@@ -362,10 +394,6 @@ export class Backend {
     if (this.progress.isCurrent(key, note.hash)) return this.snapshot();
     // This note's own concepts go separately, so a re-read keeps their names (and progress).
     const current = this.progress.conceptsFor(new Set([key])).map((c) => c.name);
-    const known = this.concepts()
-      .filter((c) => c.note_path !== key)
-      .map((c) => c.name)
-      .slice(0, 200);
     // All of the note, a piece at a time so a long one gets the same attention throughout.
     // Only the concepts are kept.
     const parts = chunks(note.body, EXTRACT_CHARS);
@@ -374,6 +402,11 @@ export class Backend {
     for (const [i, text] of parts.entries()) {
       // Removed from your library while an earlier part was read: send no more of it.
       if (!this.stillInLibrary(key)) return this.snapshot();
+      // Again for each part: a source removed meanwhile takes its concept names with it.
+      const known = this.concepts()
+        .filter((c) => c.note_path !== key)
+        .map((c) => c.name)
+        .slice(0, 200);
       const part = { index: i + 1, count: parts.length, earlier: list.map((c) => c.name) };
       const { concepts } = await tutor.extractConcepts(options, note.title, text, known, part, current);
       if (options.signal?.aborted) throw cancelled("Claude");
@@ -387,7 +420,11 @@ export class Backend {
     await this.library.waitForFile(key);
     if (options.signal?.aborted) throw cancelled("Claude");
     // The note may have changed while Claude was reading; only store if it's the same version.
-    if (this.library.notes.get(key)?.hash === note.hash) this.progress.saveConcepts(key, note.hash, list);
+    if (this.library.notes.get(key)?.hash === note.hash) {
+      // Concepts a PDF's earlier page ranges left behind can move to this part.
+      const parts = new Set([...this.library.notes.values()].filter((n) => n.path === note.path).map((n) => n.key));
+      this.progress.saveConcepts(key, note.hash, list, this.progress.formerParts(note.path, parts));
+    }
     return this.snapshot();
   }
 

@@ -16,6 +16,8 @@ export class Library {
   private disposed = false;
   private scan = 0;
   private loads = new Map<string, { token: symbol; task: Promise<string[]> }>();
+  /** A PDF was read into these parts, which may not be the page ranges it had before. */
+  onPdfParts?: (path: string, parts: Note[]) => void;
 
   constructor(
     private app: App,
@@ -95,6 +97,7 @@ export class Library {
       if (!current()) return [];
       const kept = notes.filter((n) => n.body.trim());
       for (const n of kept) this.notes.set(n.key, n);
+      if (kept.length && kept[0].kind === "pdf") this.onPdfParts?.(path, kept);
       return kept.map((n) => n.key);
     } catch (e) {
       if (!current()) return [];

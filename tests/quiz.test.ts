@@ -438,6 +438,32 @@ describe("what goes with a request", () => {
     ]);
   });
 
+  it("names no concepts from a removed source before the rescan drops them", async () => {
+    const f = fixture(["gone.md", "kept.md"]);
+    for (const k of ["gone.md", "kept.md"]) f.progress.saveConcepts(k, `hash:${k}`, [extracted(`Idea in ${k}`)]);
+    const chat = vi.spyOn(tutor, "chat").mockResolvedValue({ reply: "", mood: "happy", mascot_line: "" });
+    f.settings.studyFolders = [];
+    f.settings.studyFiles = ["kept.md"];
+    await f.backend.askTutor(null, "Home", [], "What should I study?");
+    expect(chat.mock.calls[0][1]).toContain("Idea in kept.md");
+    expect(chat.mock.calls[0][1]).not.toContain("Idea in gone.md");
+  });
+
+  it("stops naming a removed source's concepts partway through reading a long note", async () => {
+    const f = fixture(["gone.md", "long.md"]);
+    f.progress.saveConcepts("gone.md", "hash:gone.md", [extracted("Idea in gone.md")]);
+    f.library.notes.get("long.md")!.body = "A paragraph of the long note.\n\n".repeat(2_000);
+    const extract = vi.spyOn(tutor, "extractConcepts").mockImplementation(async () => {
+      f.settings.studyFolders = [];
+      f.settings.studyFiles = ["long.md"];
+      return { concepts: [] };
+    });
+    await f.backend.indexNote("long.md");
+    expect(extract.mock.calls.length).toBeGreaterThan(1);
+    expect(extract.mock.calls[0][3]).toEqual(["Idea in gone.md"]);
+    expect(extract.mock.calls[1][3]).toEqual([]);
+  });
+
   it("stops sharing a deleted note's summary and excerpt", async () => {
     const f = setup();
     f.files.splice(
