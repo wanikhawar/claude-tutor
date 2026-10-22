@@ -92,6 +92,8 @@
   let needConfidence = $state(false);
   /** The Claude request in flight, so it can be cancelled. */
   let request: AbortController | null = null;
+  /** An explanation Clawd hasn't read yet: saved as the draft until it has, in case the request fails. */
+  let unsent: { conceptId: number; text: string } | null = null;
   /** The reply is taking longer than usual. */
   let slow = $state(false);
   /** A request with no earlier state to return to failed or was cancelled: retry it, or skip the step. */
@@ -324,7 +326,9 @@
     const img = stuck ? { inputs: [], urls: [], taken: [] } : takeImages();
     const sent = push({ kind: "me", text: stuck ? "I'm stuck. Can you teach me?" : text, images: img.urls });
     const kept = draft;
-    // The stored draft is only cleared once Clawd has read it, so closing the view mid-request keeps it.
+    // The stored draft is only cleared once Clawd has read it, so closing the view mid-request or
+    // after a failed one keeps it.
+    unsent = { conceptId: ph.conceptId, text: kept };
     draft = "";
     const c = store.concept(ph.conceptId);
     const asked = question;
@@ -343,6 +347,7 @@
           stuck,
           images: img.inputs,
         });
+        unsent = null;
         saveDraft(obsidianApp(), `explain:${ph.conceptId}`, "");
         const mood: Mood = ev.passed ? "celebrating" : asMood(ev.mood, "encouraging");
         push({ kind: "feedback", ev, stuck, conceptId: ph.conceptId, mood });
@@ -365,7 +370,10 @@
         if (!ev.passed) void focusInput();
       },
       stuck ? "No worries. Let me teach it from scratch…" : "Reading your explanation carefully…",
-      () => unsend(sent, kept, img.taken),
+      () => {
+        unsent = null;
+        unsend(sent, kept, img.taken);
+      },
     );
   }
 
@@ -376,6 +384,7 @@
     const c = store.concept(ph.conceptId);
     const before = ph.attempt === 0;
     push({ kind: "me", text: before ? "I already know this one." : "I understand it now." });
+    unsent = null;
     saveDraft(obsidianApp(), `explain:${ph.conceptId}`, "");
     void api.selfReport(ph.conceptId, before ? "known" : "understood");
     const r = results.explained.findLast((x) => x.conceptId === ph.conceptId);
@@ -729,7 +738,9 @@
 
   // Keep an unsent explanation if the view closes.
   $effect(() => {
-    if (phase.p === "explain") saveDraft(obsidianApp(), `explain:${phase.conceptId}`, draft);
+    if (phase.p !== "explain") return;
+    const pending = unsent?.conceptId === phase.conceptId ? unsent.text : "";
+    saveDraft(obsidianApp(), `explain:${phase.conceptId}`, draft.trim() ? draft : pending);
   });
 
   // Remember what we were doing while a request is in flight (for Ask context).

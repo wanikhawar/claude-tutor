@@ -13,7 +13,7 @@ import { api, type FeynmanEval, type TeachReply } from "../src/ui/lib/api";
 import { store } from "../src/ui/lib/store.svelte";
 import * as images from "../src/ui/lib/images";
 import { review } from "../src/core/srs";
-import { deferred, extracted, fixture, question } from "./helpers";
+import { deferred, extracted, fixture, pdf, question } from "./helpers";
 
 let target: HTMLDivElement;
 let component: ReturnType<typeof mount> | undefined;
@@ -181,6 +181,36 @@ describe("session explanations", () => {
     mood: "celebrating",
     mascot_line: "Good",
   };
+
+  it("keeps an explanation as the draft after a failed request, until Clawd reads it", async () => {
+    const storage = new Map<string, unknown>();
+    Object.assign(f.app, {
+      loadLocalStorage: (k: string) => storage.get(k) ?? null,
+      saveLocalStorage: (k: string, v: unknown) => (v === null ? storage.delete(k) : storage.set(k, v)),
+    });
+    const conceptId = store.concepts[0].id;
+    vi.spyOn(api, "evaluateExplanation").mockRejectedValueOnce(new Error("CLI exited")).mockResolvedValueOnce(pass);
+    const open = async () => {
+      component = flushSync(() =>
+        mount(Session, {
+          target,
+          props: { plan: { id: 1, title: "Study", steps: [{ kind: "explain", conceptId }] } },
+        }),
+      );
+      await settle();
+    };
+    await open();
+    type(target.querySelector<HTMLTextAreaElement>("textarea")!, "My explanation");
+    button("Submit").click();
+    await settle();
+    expect(target.textContent).toContain("CLI exited");
+    await unmount(component!);
+    await open();
+    expect(target.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("My explanation");
+    button("Submit").click();
+    await settle();
+    expect(storage.size).toBe(0);
+  });
 
   it("blocks prerequisite navigation during evaluation and allows it after the reply", async () => {
     const [advanced, foundation] = f.progress.data.concepts;
@@ -422,6 +452,26 @@ describe("Teach lesson resets", () => {
     prepared.resolve({ url: "blob:old", mediaType: "image/png", data: "eA==", name: "work.png" } as images.Img);
     await settle();
     expect(target.querySelector(".thumbs")).toBeNull();
+  });
+
+  it("follows a source PDF part whose pages moved to other parts mid-lesson", async () => {
+    const book = pdf(f, "book.pdf", ["First page", "Second page", "Third page"]);
+    for (const k of ["book.pdf#p1-2", "book.pdf#p3-3"]) f.progress.saveConcepts(k, "old", [extracted(k)]);
+    vi.spyOn(api, "relevantNotes").mockResolvedValue(["book.pdf#p1-2", "b.md"]);
+    const teach = vi.spyOn(api, "teach").mockResolvedValue(reply);
+    component = flushSync(() => mount(Teach, { target }));
+    type(target.querySelector<HTMLTextAreaElement>("textarea")!, "Topic");
+    button("Teach me").click();
+    await settle();
+    await f.library.loadFile(book);
+    await settle();
+    type(target.querySelector<HTMLTextAreaElement>("textarea")!, "Go on");
+    button("Send").click();
+    await settle();
+    expect(teach.mock.calls.map(([, sources]) => sources)).toEqual([
+      ["book.pdf#p1-2", "b.md"],
+      ["book.pdf#p1-1", "book.pdf#p2-2", "b.md"],
+    ]);
   });
 
   it("follows a source note renamed mid-lesson", async () => {

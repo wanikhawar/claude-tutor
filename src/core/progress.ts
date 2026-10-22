@@ -1,8 +1,8 @@
 // Progress store: indexed notes, concepts with spaced-repetition state, attempts
 // and the misconception log, stored as JSON in the plugin folder.
 
-import type { Concept, ExtractedConcept } from "./types";
-import { remapPath } from "./paths";
+import type { Concept, ExtractedConcept, Note } from "./types";
+import { overlaps, pageRange, remapPath } from "./paths";
 
 export interface Misconception {
   id: number;
@@ -47,9 +47,10 @@ function cleanQuestions(qs: string[] | undefined): string[] {
     .slice(0, 4);
 }
 
+const norm = (s: string | undefined) => (s ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+
 /** Same words, ignoring case and spacing. */
 function sameText(a: string | undefined, b: string | undefined): boolean {
-  const norm = (s: string | undefined) => (s ?? "").trim().replace(/\s+/g, " ").toLowerCase();
   return norm(a) === norm(b);
 }
 
@@ -180,10 +181,15 @@ export class Progress {
   /**
    * Store freshly extracted concepts for a note. A concept that's still there keeps its ID and
    * progress: matched by name (ignoring case and spacing), else by the same supporting quote
-   * when it was renamed. Concepts that disappeared are removed.
+   * when it was renamed. Concepts that disappeared are removed. Concepts left on a PDF's
+   * `former` parts (see `reconcileParts`) can be matched too, and move to this part.
    */
-  saveConcepts(notePath: string, hash: string, list: ExtractedConcept[]) {
-    const old = this.data.concepts.filter((c) => c.note_path === notePath);
+  saveConcepts(notePath: string, hash: string, list: ExtractedConcept[], former: string[] = []) {
+    // This note's own first, so a name an earlier part shares keeps this note's concept.
+    const old = [
+      ...this.data.concepts.filter((c) => c.note_path === notePath),
+      ...this.data.concepts.filter((c) => former.includes(c.note_path)),
+    ];
     const unmatched = new Set(old);
     const take = (c: Concept | undefined) => {
       if (c) unmatched.delete(c);
@@ -203,6 +209,7 @@ export class Progress {
       const name = e.name.trim();
       const existing = matched[i];
       if (existing) {
+        existing.note_path = notePath;
         existing.name = name;
         existing.summary = e.summary;
         existing.prerequisites = e.prerequisites ?? [];
@@ -227,8 +234,10 @@ export class Progress {
         });
       }
     }
-    for (const c of unmatched) this.dropped.set(c.id, c);
-    this.data.concepts = this.data.concepts.filter((c) => !unmatched.has(c));
+    // Unmatched ones from former parts stay: they may belong to another part, not yet read.
+    const gone = new Set([...unmatched].filter((c) => c.note_path === notePath));
+    for (const c of gone) this.dropped.set(c.id, c);
+    this.data.concepts = this.data.concepts.filter((c) => !gone.has(c));
     this.data.notes[notePath] = { hash, indexed_at: new Date().toISOString(), v: EXTRACT_VERSION };
     this.changed();
   }
@@ -248,6 +257,63 @@ export class Progress {
 
   touch() {
     this.changed();
+  }
+
+  /** Keys of a PDF's earlier parts, with concepts or a read record, that aren't among its `parts` now. */
+  formerParts(path: string, parts: Set<string>): string[] {
+    const keys = [...Object.keys(this.data.notes), ...this.data.concepts.map((c) => c.note_path)];
+    return [...new Set(keys)].filter((k) => (k === path || k.startsWith(`${path}#p`)) && !parts.has(k));
+  }
+
+  /**
+   * Keep progress when a PDF's parts change. They're page ranges, so they move when its text
+   * does (it was edited, or read by another extractor). A new part stays picked for Clawd to
+   * read only if parts you picked covered all its pages, and is read again. A concept moves
+   * to the one picked part that has its quote. Any other stays on its former part until a part
+   * that names it is read (`saveConcepts`): a guess could put it on a part whose re-read drops it.
+   */
+  reconcileParts(path: string, parts: Note[]) {
+    const former = this.formerParts(path, new Set(parts.map((n) => n.key)));
+    if (!former.length) return;
+    const picked = former.filter((k) => this.data.notes[k]).map(pageRange);
+    const covered = ([first, last]: [number, number]) => {
+      for (let p = first; p <= last; p++) if (!picked.some(([a, b]) => a <= p && p <= b)) return false;
+      return true;
+    };
+    const range = (n: Note) => n.pages ?? pageRange(n.key);
+    let any = false;
+    for (const n of parts) {
+      if (this.data.notes[n.key] || !covered(range(n))) continue;
+      // No hash matches, so it's read again.
+      this.data.notes[n.key] = { hash: "", indexed_at: new Date().toISOString(), v: EXTRACT_VERSION };
+      any = true;
+    }
+    const target = (c: Concept) => {
+      const quoted = c.excerpt.trim() ? parts.filter((n) => norm(n.body).includes(norm(c.excerpt))) : [];
+      return quoted.length === 1 ? quoted[0].key : undefined;
+    };
+    for (const c of this.data.concepts) {
+      if (!former.includes(c.note_path)) continue;
+      const key = target(c);
+      if (key && this.data.notes[key]) {
+        c.note_path = key;
+        any = true;
+      }
+    }
+    // Not saved, so no change to record: a step or question may still be showing one.
+    for (const c of this.dropped.values()) {
+      const key = former.includes(c.note_path) ? target(c) : undefined;
+      if (key && this.data.notes[key]) c.note_path = key;
+    }
+    // A former part's record says you picked its pages. Kept while some aren't in a picked part,
+    // so a later split that gives them a part of their own picks it again.
+    const unpicked = parts.filter((n) => !this.data.notes[n.key]).map(range);
+    for (const k of former) {
+      if (!this.data.notes[k] || unpicked.some((r) => overlaps(r, pageRange(k)))) continue;
+      delete this.data.notes[k];
+      any = true;
+    }
+    if (any) this.changed();
   }
 
   /** Keep progress when a file or folder is renamed (including split PDFs). */

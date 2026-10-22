@@ -46,16 +46,20 @@ interface PdfDoc {
 export async function pdfjsPages(pdfjs: PdfJs, data: Uint8Array): Promise<string[]> {
   const doc = await pdfjs.getDocument({ data }).promise;
   const pages: string[] = [];
-  for (let n = 1; n <= doc.numPages; n++) {
-    const content = await (await doc.getPage(n)).getTextContent();
-    let text = "";
-    for (const item of content.items) {
-      text += item.str ?? "";
-      if (item.hasEOL) text += "\n";
+  try {
+    for (let n = 1; n <= doc.numPages; n++) {
+      const content = await (await doc.getPage(n)).getTextContent();
+      let text = "";
+      for (const item of content.items) {
+        text += item.str ?? "";
+        if (item.hasEOL) text += "\n";
+      }
+      pages.push(cleanPage(text));
     }
-    pages.push(cleanPage(text));
+  } finally {
+    // Also after a bad page, or its worker and memory stay held.
+    await doc.destroy?.();
   }
-  await doc.destroy?.();
   return pages;
 }
 

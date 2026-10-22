@@ -263,8 +263,14 @@
     // A note renamed or moved mid-lesson is still the same note. One moved out of the library
     // still stops the lesson: the backend checks every source before each turn.
     const unfollow = api.onRename((from, to) => (sources = sources.map((k) => remapPath(k, from, to))));
+    // So is a PDF part whose pages moved to other parts.
+    const unparts = api.onRepartition((replace) => {
+      const next = [...new Set(sources.flatMap(replace))];
+      if (next.join("\n") !== sources.join("\n")) sources = next;
+    });
     return () => {
       unfollow();
+      unparts();
       request?.abort();
       att.clear();
       if (store.primaryHandlers.teach === primary) delete store.primaryHandlers.teach;
