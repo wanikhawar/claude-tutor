@@ -55,9 +55,12 @@ export class Library {
   async loadAll() {
     const scan = ++this.scan;
     this.loads.clear();
-    this.notes.clear();
-    this.skipped.clear();
-    for (const f of this.candidates()) {
+    // Not cleared: notes still in scope stay usable while the scan reaches them. Only what left scope goes.
+    const files = this.candidates();
+    const inScope = new Set(files.map((f) => f.path));
+    for (const [k, n] of this.notes) if (!inScope.has(n.path)) this.notes.delete(k);
+    for (const p of this.skipped.keys()) if (!inScope.has(p)) this.skipped.delete(p);
+    for (const f of files) {
       if (this.disposed || this.scan !== scan) return;
       await this.loadFile(f);
     }

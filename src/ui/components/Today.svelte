@@ -54,7 +54,9 @@
   let root = $state<HTMLDivElement>();
   // Shortcuts only work while the tutor view has focus, so they never fight Obsidian's hotkeys.
   $effect(() => {
-    root?.focus({ preventScroll: true });
+    // Not while something else (a note being edited) has focus.
+    const active = document.activeElement;
+    if (!active || active === document.body) root?.focus({ preventScroll: true });
   });
 
   function onKey(e: KeyboardEvent) {

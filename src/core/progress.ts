@@ -276,9 +276,16 @@ export class Progress {
     const former = this.formerParts(path, new Set(parts.map((n) => n.key)));
     if (!former.length) return;
     const picked = former.filter((k) => this.data.notes[k]).map(pageRange);
+    // Whether the picked ranges together hold every page of [first, last]. Ranges can be open-ended
+    // (a PDF read as one part), so walk the merged ranges instead of the pages.
     const covered = ([first, last]: [number, number]) => {
-      for (let p = first; p <= last; p++) if (!picked.some(([a, b]) => a <= p && p <= b)) return false;
-      return true;
+      let next = first;
+      for (const [a, b] of [...picked].sort((x, y) => x[0] - y[0])) {
+        if (a > next) break;
+        next = Math.max(next, b + 1);
+        if (next > last) return true;
+      }
+      return next > last;
     };
     const range = (n: Note) => n.pages ?? pageRange(n.key);
     let any = false;

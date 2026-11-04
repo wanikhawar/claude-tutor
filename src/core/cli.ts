@@ -139,6 +139,22 @@ function stop(child: ChildProcess) {
   if (child.exitCode !== null || child.signalCode !== null) return;
   if (WINDOWS && child.pid !== undefined) {
     spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], { stdio: "ignore" }).on("error", () => child.kill());
+  } else if (child.pid !== undefined) {
+    // The CLI runs in its own process group (see `runCli`), so wrappers' children get the signal too.
+    const pid = child.pid;
+    const signal = (sig: NodeJS.Signals) => {
+      try {
+        process.kill(-pid, sig);
+      } catch {
+        child.kill(sig);
+      }
+    };
+    signal("SIGTERM");
+    // One that ignores SIGTERM would otherwise run on forever.
+    const force = window.setTimeout(() => {
+      if (child.exitCode === null && child.signalCode === null) signal("SIGKILL");
+    }, 1500);
+    child.once("exit", () => window.clearTimeout(force));
   } else child.kill();
 }
 
@@ -175,7 +191,12 @@ export function runCli<T>(r: CliRun<T>): Promise<T> {
     } catch (e) {
       return reject(e instanceof Error ? e : new Error(String(e)));
     }
-    const child = spawn(run.file, run.args, { cwd: r.cwd, env: r.env ?? childEnv(), stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(run.file, run.args, {
+      cwd: r.cwd,
+      env: r.env ?? childEnv(),
+      stdio: ["pipe", "pipe", "pipe"],
+      detached: !WINDOWS,
+    });
     let stdout = "";
     let stderr = "";
     let settled = false;

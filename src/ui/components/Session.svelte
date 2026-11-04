@@ -736,11 +736,12 @@
     };
   });
 
-  // Keep an unsent explanation if the view closes.
+  // Keep an unsent explanation if the view closes. One that failed to send stays stored until it
+  // sends, so typing in the emptied composer can't replace it.
   $effect(() => {
     if (phase.p !== "explain") return;
     const pending = unsent?.conceptId === phase.conceptId ? unsent.text : "";
-    saveDraft(obsidianApp(), `explain:${phase.conceptId}`, draft.trim() ? draft : pending);
+    saveDraft(obsidianApp(), `explain:${phase.conceptId}`, pending || draft);
   });
 
   // Remember what we were doing while a request is in flight (for Ask context).

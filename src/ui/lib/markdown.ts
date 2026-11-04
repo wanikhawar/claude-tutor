@@ -8,6 +8,10 @@ import { MarkdownRenderer, type App, type Component } from "obsidian";
 import { CSS_FETCH, FETCHING_ATTRIBUTES, FETCHING_ELEMENTS } from "../../core/inert";
 
 const LOCAL = /^(app|data|blob):/i;
+const UNSAFE_URL_ATTRIBUTES = new Set(["href", "xlink:href", "formaction", "action"]);
+// Browsers ignore tabs, newlines and leading control characters inside the scheme.
+const SCRIPT_URL =
+  /^\s*(?:j[\t\n\r]*a[\t\n\r]*v[\t\n\r]*a[\t\n\r]*s[\t\n\r]*c[\t\n\r]*r[\t\n\r]*i[\t\n\r]*p[\t\n\r]*t|vbscript|data):/i;
 
 /** A copy of a rendered node that's safe to show. The copy is made and checked in the inert document. */
 function safeCopy(node: Node): Node {
@@ -35,6 +39,11 @@ function safeElement(e: Element): Node | null {
   }
   for (const a of Array.from(e.attributes)) {
     const n = a.name.toLowerCase();
+    // Event handlers would run once the copy is in the live document, and a javascript: link on click.
+    if (n.startsWith("on") || (UNSAFE_URL_ATTRIBUTES.has(n) && SCRIPT_URL.test(a.value))) {
+      e.removeAttribute(a.name);
+      continue;
+    }
     const keepSrc = n === "src" && name === "img";
     // CSS loads images with url() and image-set(), in styles and SVG attributes like fill;
     // a backslash in a style could be an escape spelling either.
