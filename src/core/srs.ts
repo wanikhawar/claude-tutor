@@ -23,7 +23,7 @@ export function review(c: Concept, score: number, now = new Date()): Concept {
     c.reps = 0;
     c.lapses += 1;
     c.interval_days = 0;
-    c.ease = Math.max(1.3, c.ease - 0.2);
+    c.ease = Math.min(MAX_EASE, Math.max(1.3, c.ease - 0.2));
     c.due = new Date(now.getTime() + 10 * 60_000).toISOString();
   } else {
     c.reps += 1;

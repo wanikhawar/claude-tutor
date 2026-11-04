@@ -151,10 +151,10 @@ function stop(child: ChildProcess) {
     };
     signal("SIGTERM");
     // One that ignores SIGTERM would otherwise run on forever.
-    const force = window.setTimeout(() => {
-      if (child.exitCode === null && child.signalCode === null) signal("SIGKILL");
+    window.setTimeout(() => {
+      // Even if the CLI itself is gone: something it started may have ignored SIGTERM.
+      signal("SIGKILL");
     }, 1500);
-    child.once("exit", () => window.clearTimeout(force));
   } else child.kill();
 }
 

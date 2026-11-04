@@ -71,8 +71,11 @@ export class Library {
     if (this.disposed) return [];
     const path = file.path;
     if (this.app.vault.getAbstractFileByPath(path) !== file) return [];
-    this.removeFile(path);
-    if (!this.inScope(path)) return [];
+    // Notes already loaded stay until the new read lands (see `readFile`); only a file out of scope goes now.
+    if (!this.inScope(path)) {
+      this.removeFile(path);
+      return [];
+    }
     const token = Symbol(path);
     const task = this.readFile(file, path, token);
     this.loads.set(path, { token, task });
@@ -99,16 +102,24 @@ export class Library {
       const notes = file.extension.toLowerCase() === "pdf" ? await this.readPdf(file) : [await this.readMarkdown(file)];
       if (!current()) return [];
       const kept = notes.filter((n) => n.body.trim());
+      this.dropLoaded(path);
       for (const n of kept) this.notes.set(n.key, n);
       if (kept.length && kept[0].kind === "pdf") this.onPdfParts?.(path, kept);
       return kept.map((n) => n.key);
     } catch (e) {
       if (!current()) return [];
+      this.dropLoaded(path);
       this.skipped.set(path, { rel: path, reason: e instanceof Error ? e.message : String(e) });
       return [];
     } finally {
       if (this.loads.get(path)?.token === token) this.loads.delete(path);
     }
+  }
+
+  /** Forget what an earlier read of one file produced, keeping any read in flight. */
+  private dropLoaded(path: string) {
+    for (const [k, n] of this.notes) if (n.path === path) this.notes.delete(k);
+    this.skipped.delete(path);
   }
 
   removeFile(path: string) {
