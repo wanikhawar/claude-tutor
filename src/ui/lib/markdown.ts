@@ -8,6 +8,18 @@ import { MarkdownRenderer, type App, type Component } from "obsidian";
 import { CSS_FETCH, FETCHING_ATTRIBUTES, FETCHING_ELEMENTS } from "../../core/inert";
 
 const LOCAL = /^(app|data|blob):/i;
+// SVG elements that can set an attribute, such as an anchor's href, after insertion.
+const ANIMATION_ELEMENTS = new Set(["animate", "animatemotion", "animatetransform", "set"]);
+const UNSAFE_URL_ATTRIBUTES = new Set(["href", "xlink:href", "formaction", "action"]);
+/** Whether a URL would run script or carry a document. Browsers drop tabs and newlines anywhere in a URL, and leading controls and spaces. */
+function scriptUrl(value: string): boolean {
+  let url = "";
+  for (const ch of value) {
+    const code = ch.charCodeAt(0);
+    if (code > 0x20 && code !== 0x7f) url += ch;
+  }
+  return /^(?:javascript|vbscript|data):/i.test(url);
+}
 
 /** A copy of a rendered node that's safe to show. The copy is made and checked in the inert document. */
 function safeCopy(node: Node): Node {
@@ -28,13 +40,18 @@ function safeCopy(node: Node): Node {
 function safeElement(e: Element): Node | null {
   const name = e.localName.toLowerCase();
   // Replaced one for one, never removed: clicks find their original by position.
-  if (FETCHING_ELEMENTS.has(name)) return e.ownerDocument.createComment("");
+  if (FETCHING_ELEMENTS.has(name) || ANIMATION_ELEMENTS.has(name)) return e.ownerDocument.createComment("");
   if (name === "img") {
     const src = e.getAttribute("src") ?? "";
     if (!LOCAL.test(src.trim())) return imageLink(e, src);
   }
   for (const a of Array.from(e.attributes)) {
     const n = a.name.toLowerCase();
+    // Event handlers would run once the copy is in the live document, and a javascript: link on click.
+    if (n.startsWith("on") || (UNSAFE_URL_ATTRIBUTES.has(n) && scriptUrl(a.value))) {
+      e.removeAttribute(a.name);
+      continue;
+    }
     const keepSrc = n === "src" && name === "img";
     // CSS loads images with url() and image-set(), in styles and SVG attributes like fill;
     // a backslash in a style could be an escape spelling either.

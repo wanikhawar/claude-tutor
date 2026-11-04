@@ -86,6 +86,14 @@ describe("progress + srs", () => {
     excerpt: "",
     questions,
   });
+  it("keeps due dates valid on a long streak of perfect reviews", () => {
+    const p = new Progress(emptyProgress());
+    p.saveConcepts("n.md", "h1", [c("A")]);
+    const a = p.data.concepts[0];
+    for (let i = 0; i < 60; i++) review(a, 1);
+    expect(Number.isNaN(new Date(a.due ?? 0).getTime())).toBe(false);
+    expect(a.interval_days).toBeLessThanOrEqual(3650);
+  });
   it("re-indexing keeps progress and drops stale concepts", () => {
     const p = new Progress(emptyProgress());
     p.saveConcepts("n.md", "h1", [c("A"), c("B")]);
@@ -224,6 +232,14 @@ describe("progress + srs", () => {
       expect(Object.keys(p.data.notes).sort()).toEqual(["book.pdf#p1-8", "book.pdf#p9-20"]);
       // Read again, since the text moved.
       expect(p.isCurrent("book.pdf#p1-8", "h1")).toBe(false);
+    });
+
+    it("terminates when a PDF that was one part is split", () => {
+      const p = new Progress(emptyProgress());
+      p.saveConcepts("book.pdf", "h", [c("Whole")]);
+      p.data.notes["book.pdf"] = { hash: "h", indexed_at: "", v: EXTRACT_VERSION };
+      p.reconcileParts("book.pdf", [part("book.pdf", 1, 5, "a"), part("book.pdf", 6, 9, "b")]);
+      expect(Object.keys(p.data.notes).sort()).toEqual(["book.pdf#p1-5", "book.pdf#p6-9"]);
     });
 
     it("doesn't guess a part for a concept its quote can't place, so a re-read can't drop it", () => {

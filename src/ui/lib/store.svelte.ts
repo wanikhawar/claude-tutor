@@ -445,6 +445,7 @@ export class Store {
             if (!this.active(generation)) return;
             this.failedReads.add(key);
             this.indexError = errText(e);
+            new Notice(`Claude Tutor: ${this.indexError}`);
             this.indexing = null;
             this.say("confused", "I got stuck reading one of your notes.");
             return;
@@ -562,6 +563,7 @@ export class Store {
           if (this.active(generation)) {
             this.failedReads.add(key());
             this.indexError = errText(e);
+            new Notice(`Claude Tutor: ${this.indexError}`);
           }
           return false;
         }

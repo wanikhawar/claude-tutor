@@ -788,7 +788,12 @@ export class Backend {
   /** Save a finished lesson as a note in the vault and open it. Returns its path. */
   async saveLesson(topic: string, summary: string, sources: string[]): Promise<string> {
     const folder = normalizePath(this.settings().lessonFolder || "Claude Tutor/Lessons");
-    if (!this.app.vault.getAbstractFileByPath(folder)) await this.app.vault.createFolder(folder).catch(() => {});
+    // createFolder makes one level at a time, so each missing parent is made in turn.
+    let built = "";
+    for (const part of folder.split("/").filter(Boolean)) {
+      built = built ? `${built}/${part}` : part;
+      if (!this.app.vault.getAbstractFileByPath(built)) await this.app.vault.createFolder(built).catch(() => {});
+    }
     const base =
       topic
         .replace(/[\\/:*?"<>|#^[\]]/g, " ")
