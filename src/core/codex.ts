@@ -15,12 +15,11 @@ import {
   findBinary,
   jsonLines,
   runCli,
-  str,
   type DiscoveredModel,
   type ModelList,
   type RequestOptions,
 } from "./cli";
-import type { ImageInput } from "./types";
+import { str, type ImageInput } from "./types";
 
 /** Features that only add agent tools; off, a request is about half the size. */
 const TOOL_FEATURES = [

@@ -98,7 +98,17 @@ export function renderMarkdown(
     return inline && inert.childNodes.length === 1 && only?.tagName === "P" ? only : inert;
   };
   const show = () => target.replaceChildren(...Array.from(source().childNodes, safeCopy));
-  const changes = new MutationObserver(show);
+  // MathJax typesets formulas over many mutation batches; copying the whole reply for each one is
+  // wasteful, so at most one copy is made per frame.
+  const win = target.win ?? window;
+  let frame: number | null = null;
+  const changes = new MutationObserver(() => {
+    if (frame !== null) return;
+    frame = win.requestAnimationFrame(() => {
+      frame = null;
+      show();
+    });
+  });
   changes.observe(inert, { subtree: true, childList: true, attributes: true, characterData: true });
 
   const forward = (e: MouseEvent) => {
@@ -123,6 +133,7 @@ export function renderMarkdown(
   changes.takeRecords();
   return () => {
     changes.disconnect();
+    if (frame !== null) win.cancelAnimationFrame(frame);
     target.removeEventListener("click", forward);
   };
 }

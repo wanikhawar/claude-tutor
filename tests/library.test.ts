@@ -63,17 +63,33 @@ describe("vault read ordering", () => {
   });
 
   it("stops a superseded rescan before it starts the remaining reads", async () => {
-    const f = fixture();
-    const older = deferred<string>();
-    f.vault.cachedRead.mockReturnValueOnce(older.promise).mockResolvedValue("Latest content");
+    // More files than the scan reads at once, so some are still waiting when the second scan starts.
+    const paths = Array.from({ length: 12 }, (_, i) => `n${i}.md`);
+    const f = fixture(paths);
+    const gate = deferred<string>();
+    f.vault.cachedRead.mockImplementation(() => gate.promise);
     const first = f.library.loadAll();
+    await Promise.resolve();
+    expect(f.vault.cachedRead).toHaveBeenCalledTimes(8);
     f.files.splice(0, 1);
+    const second = f.library.loadAll();
+    gate.resolve("Content");
+    await Promise.all([first, second]);
+    // The first scan never started the files it hadn't reached; the second read the 11 that remain.
+    expect(f.vault.cachedRead).toHaveBeenCalledTimes(8 + 11);
+    expect(f.library.notes.size).toBe(11);
+  });
+
+  it("removes cached PDF text for edited or no-longer-studied PDFs", async () => {
+    const f = fixture([]);
+    pdf(f, "book.pdf", ["Page"]);
+    f.settings.includePdfs = true;
+    f.disk.set("cache/oldformatentry.json", "[]");
+    f.disk.set("cache/ffffffffffffffff-aaaaaaaaaaaaaaaa.json", "[]");
     await f.library.loadAll();
-    older.resolve("Obsolete content");
-    await first;
-    expect(f.vault.cachedRead.mock.calls.map(([n]) => n.path)).toEqual(["a.md", "b.md"]);
-    expect([...f.library.notes.keys()]).toEqual(["b.md"]);
-    expect(f.library.notes.get("b.md")?.body).toBe("Latest content");
+    const cached = [...f.disk.keys()].filter((p) => p.startsWith("cache/"));
+    expect(cached).toHaveLength(1);
+    expect(cached[0]).toMatch(/^cache\/[0-9a-f]{16}-[0-9a-f]{16}\.json$/);
   });
 });
 

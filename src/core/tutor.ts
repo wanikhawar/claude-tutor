@@ -329,6 +329,13 @@ ${userAnswer.trim() || (images.length ? "(see the attached image)" : "(blank)")}
 // ---------------------------------------------------------------------------
 // Free-form questions to the tutor
 
+/** The last `n` turns of a conversation as a "Learner:/Clawd:" transcript. */
+const transcript = (history: [boolean, string][], n: number) =>
+  history
+    .slice(-n)
+    .map(([fromUser, text]) => `${fromUser ? "Learner" : "Clawd"}: ${text}\n\n`)
+    .join("");
+
 export function chat(
   c: RequestOptions,
   context: string,
@@ -337,10 +344,7 @@ export function chat(
   images: ImageInput[] = [],
 ): Promise<ChatReply> {
   const schema = obj({ reply: str, mood, mascot_line: str });
-  const convo = history
-    .slice(-12)
-    .map(([fromUser, text]) => `${fromUser ? "Learner" : "Clawd"}: ${text}\n\n`)
-    .join("");
+  const convo = transcript(history, 12);
   const prompt = `The learner is asking you something during a study session. Answer as their tutor in \`reply\` (Markdown). Keep it focused and short unless they ask for depth. If the question shows confusion, address the root cause and finish with a tiny question that checks they understood.
 
 <session_context>
@@ -386,10 +390,7 @@ export function teach(
     mood,
     mascot_line: str,
   });
-  const convo = history
-    .slice(-20)
-    .map(([fromUser, text]) => `${fromUser ? "Learner" : "Clawd"}: ${text}\n\n`)
-    .join("");
+  const convo = transcript(history, 20);
   const prompt = `You are giving the learner a one-to-one lesson on the topic they asked for. Teach it Socratically: guide them to work things out instead of spoon-feeding.
 
 How to teach:

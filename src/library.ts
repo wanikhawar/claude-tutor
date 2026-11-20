@@ -8,6 +8,10 @@ import type { Note, Skipped } from "./core/types";
 import type { TutorSettings } from "./settings";
 
 const byPath = new Intl.Collator(undefined, { sensitivity: "base" });
+/** How many files a scan reads at once. */
+const LOAD_WORKERS = 8;
+/** Cached PDF text is named `<pathHash>-<versionHash>.json`, so one file's old versions can be found. */
+const pathHash = (path: string) => sha256(path).slice(0, 16);
 
 export class Library {
   /** Notes by key (a Markdown file, or one page-range part of a PDF). */
@@ -60,9 +64,31 @@ export class Library {
     const inScope = new Set(files.map((f) => f.path));
     for (const [k, n] of this.notes) if (!inScope.has(n.path)) this.notes.delete(k);
     for (const p of this.skipped.keys()) if (!inScope.has(p)) this.skipped.delete(p);
-    for (const f of files) {
-      if (this.disposed || this.scan !== scan) return;
-      await this.loadFile(f);
+    // A few files at a time: reading one by one is slow on a big vault. A newer scan or dispose stops the workers.
+    let next = 0;
+    const worker = async () => {
+      while (next < files.length) {
+        if (this.disposed || this.scan !== scan) return;
+        await this.loadFile(files[next++]);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(LOAD_WORKERS, files.length) }, worker));
+    if (this.disposed || this.scan !== scan) return;
+    await this.pruneCache(files.filter((f) => f.path.toLowerCase().endsWith(".pdf")));
+  }
+
+  /** Drop cached PDF text for files no longer in scope, and old-format entries. Best-effort. */
+  private async pruneCache(pdfs: TFile[]) {
+    try {
+      const adapter = this.app.vault.adapter;
+      const keep = new Set(pdfs.map((f) => pathHash(f.path)));
+      for (const entry of (await adapter.list(this.cacheDir)).files) {
+        const name = entry.split("/").pop() ?? "";
+        if (keep.has(name.split("-")[0]) && name.includes("-")) continue;
+        await adapter.remove(entry).catch(() => {});
+      }
+    } catch {
+      // Pruning is best-effort.
     }
   }
 
@@ -171,11 +197,12 @@ export class Library {
     });
   }
 
-  /** Page texts, cached by path + size + modification time. */
+  /** Page texts, cached by path + size + modification time. Older versions of the same file are removed. */
   private async pdfPages(file: TFile): Promise<string[]> {
     const adapter = this.app.vault.adapter;
-    const id = sha256(`${file.path}|${file.stat.size}|${file.stat.mtime}`).slice(0, 32);
-    const cacheFile = normalizePath(`${this.cacheDir}/${id}.json`);
+    const prefix = pathHash(file.path);
+    const version = sha256(`${file.path}|${file.stat.size}|${file.stat.mtime}`).slice(0, 16);
+    const cacheFile = normalizePath(`${this.cacheDir}/${prefix}-${version}.json`);
     try {
       if (await adapter.exists(cacheFile)) return JSON.parse(await adapter.read(cacheFile)) as string[];
     } catch {
@@ -199,6 +226,12 @@ export class Library {
     try {
       if (!(await adapter.exists(this.cacheDir))) await adapter.mkdir(this.cacheDir);
       await adapter.write(cacheFile, JSON.stringify(pages));
+      // An edit or rename leaves the old text behind; keep only the newest entry for this file.
+      for (const entry of (await adapter.list(this.cacheDir)).files) {
+        const name = entry.split("/").pop() ?? "";
+        if (name.startsWith(`${prefix}-`) && normalizePath(entry) !== cacheFile)
+          await adapter.remove(entry).catch(() => {});
+      }
     } catch {
       // Caching is best-effort.
     }

@@ -1,7 +1,7 @@
 // Progress store: indexed notes, concepts with spaced-repetition state, attempts
 // and the misconception log, stored as JSON in the plugin folder.
 
-import type { Concept, ExtractedConcept, Note } from "./types";
+import { str, type Concept, type ExtractedConcept, type Note } from "./types";
 import { overlaps, pageRange, remapPath } from "./paths";
 
 export interface Misconception {
@@ -67,7 +67,6 @@ export function emptyProgress(): ProgressData {
 
 const isObject = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x);
 const isId = (x: unknown): x is number => Number.isInteger(x) && (x as number) > 0;
-const str = (x: unknown) => (typeof x === "string" ? x : "");
 /** A date that doesn't parse is dropped, so the concept counts as due instead of never. */
 const dateOrNull = (x: unknown) => (typeof x === "string" && !Number.isNaN(Date.parse(x)) ? x : null);
 const num = (x: unknown, fallback: number) => (typeof x === "number" && Number.isFinite(x) ? x : fallback);

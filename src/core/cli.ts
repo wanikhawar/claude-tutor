@@ -46,8 +46,6 @@ export interface DiscoveredModel {
 
 export type ModelList = { version: string; models: DiscoveredModel[] };
 
-export const str = (x: unknown) => (typeof x === "string" ? x : "");
-
 /** The JSON objects in a CLI's line-by-line output; lines that aren't one are skipped. */
 export function* jsonLines<T = Record<string, unknown>>(stdout: string): Generator<T> {
   for (const line of stdout.split("\n")) {

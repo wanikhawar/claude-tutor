@@ -152,6 +152,8 @@ export interface TeachReply {
   mascot_line: string;
 }
 
+export const str = (x: unknown) => (typeof x === "string" ? x : "");
+
 export function isMcq(q: Question) {
   return q.kind === "mcq" && q.options.length > 0;
 }

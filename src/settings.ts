@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import {
   App,
+  debounce,
   FuzzySuggestModal,
   Notice,
   PluginSettingTab,
@@ -116,12 +117,26 @@ export class TutorSettingTab extends PluginSettingTab {
   /** Model discovery per CLI: asked once per settings session, or again from the reload button. */
   private discovery: Record<Provider, "idle" | "running" | "done"> = { claude: "idle", codex: "idle" };
   private discoveryError: Record<Provider, string> = { claude: "", codex: "" };
+  /**
+   * Folder lists as they were when you started editing the exclusions, so half-typed names don't
+   * drop notes. Kept here, not in `sections()`, which runs again on every update.
+   */
+  private exclusionBaseline: { excluded: string[]; files: string[] } | null = null;
+  /** Rescanning reads every note, so it waits until you stop typing in a folder list. */
+  private rescanSoon = debounce(() => void this.plugin.backend.rescan(), 800, true);
 
   constructor(
     app: App,
     private plugin: ClaudeTutorPlugin,
   ) {
     super(app, plugin);
+  }
+
+  hide() {
+    super.hide();
+    this.exclusionBaseline = null;
+    // Don't lose a rescan that was still waiting.
+    this.rescanSoon.run();
   }
 
   private async discover(p: Provider) {
@@ -293,9 +308,6 @@ export class TutorSettingTab extends PluginSettingTab {
   /** The settings, grouped into sections. */
   private sections(): Section[] {
     const s = this.plugin.settings;
-    // Folder lists as they were when the tab opened, so half-typed names don't drop notes.
-    const excludedBefore = [...s.excludedFolders];
-    const filesBefore = [...s.studyFiles];
     const save = async (rescan = false) => {
       await this.plugin.saveSettings();
       if (rescan) await this.plugin.backend.rescan();
@@ -325,7 +337,8 @@ export class TutorSettingTab extends PluginSettingTab {
                   .setValue(s.studyFolders.join("\n"))
                   .onChange(async (v) => {
                     s.studyFolders = lines(v);
-                    await save(true);
+                    await save();
+                    this.rescanSoon();
                   }),
               ),
           },
@@ -338,8 +351,13 @@ export class TutorSettingTab extends PluginSettingTab {
                   .setPlaceholder("Templates\nArchive")
                   .setValue(s.excludedFolders.join("\n"))
                   .onChange(async (v) => {
-                    applyExclusions(s, excludedBefore, filesBefore, lines(v));
-                    await save(true);
+                    const before = (this.exclusionBaseline ??= {
+                      excluded: [...s.excludedFolders],
+                      files: [...s.studyFiles],
+                    });
+                    applyExclusions(s, before.excluded, before.files, lines(v));
+                    await save();
+                    this.rescanSoon();
                   }),
               ),
           },

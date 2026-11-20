@@ -25,7 +25,9 @@ export class Scope {
   register() {}
 }
 export class Setting {}
-export class PluginSettingTab {}
+export class PluginSettingTab {
+  hide() {}
+}
 export class FuzzySuggestModal {}
 export class Notice {
   constructor(public message: string) {}
@@ -92,6 +94,12 @@ export function debounce(fn: () => void, delay: number) {
   run.cancel = () => {
     clearTimeout(timer);
     return run;
+  };
+  run.run = () => {
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    timer = undefined;
+    fn();
   };
   return run;
 }

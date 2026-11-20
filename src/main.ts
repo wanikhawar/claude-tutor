@@ -255,9 +255,15 @@ export default class ClaudeTutorPlugin extends Plugin {
       new Notice("Claude Tutor works with Markdown notes and PDFs.");
       return;
     }
+    // The library skips every PDF while PDFs are off, even one listed in studyFiles, so say why up front.
+    if (file.extension.toLowerCase() === "pdf" && !this.settings.includePdfs) {
+      new Notice("PDFs are turned off. Enable them with the include PDFs setting in Claude Tutor settings.");
+      return;
+    }
     const request = store.beginStudyRequest();
     if (!this.backend.library.inScope(file.path)) {
-      this.settings.studyFiles.push(file.path);
+      // Not in scope can also mean it's already listed but unreadable; don't add it twice.
+      if (!this.settings.studyFiles.includes(file.path)) this.settings.studyFiles.push(file.path);
       await this.saveSettings();
     }
     if (!store.isCurrentStudyRequest(request)) return;

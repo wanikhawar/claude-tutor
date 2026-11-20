@@ -54,7 +54,11 @@ const SLEEP_AFTER_MS = 90_000;
 const REINDEX_DELAY_MS = 20_000;
 
 /** Move the keys under a renamed file or folder to their new paths. */
-function remapKeys(keys: Set<string>, from: string, to: string) {
+function remapKeys(keys: Set<string> | string[], from: string, to: string) {
+  if (Array.isArray(keys)) {
+    keys.forEach((key, i) => (keys[i] = remapPath(key, from, to)));
+    return;
+  }
   for (const key of [...keys]) {
     const moved = remapPath(key, from, to);
     if (moved === key) continue;
@@ -111,14 +115,14 @@ export class Store {
   private moodAt = Date.now();
   private lastActivity = Date.now();
   /** The edited notes the confirmation is asking about, and the ones you said yes or no to. */
-  private askedBulk: string[] = [];
-  private approvedBulk = new Set<string>();
-  private declinedBulk = new Set<string>();
+  private readonly askedBulk: string[] = [];
+  private readonly approvedBulk = new Set<string>();
+  private readonly declinedBulk = new Set<string>();
   /**
    * Notes you picked for Clawd to read that it hasn't read yet. Once read, a note is like any
    * other: edits to it are re-read only as the auto re-read and confirmation settings say.
    */
-  private picked = new Set<string>();
+  private readonly picked = new Set<string>();
   private timer: number | null = null;
   private ticker: number | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -126,7 +130,12 @@ export class Store {
   private generation = 0;
   private reading = new AbortController();
   private indexTask: Promise<unknown> | null = null;
-  private failedReads = new Set<string>();
+  private readonly failedReads = new Set<string>();
+  /**
+   * Every collection of note keys that must follow a rename, so a renamed note is still the same
+   * note. Updated in place (never replaced) so the registry always holds the live collection.
+   */
+  private readonly tracked = new Set<Set<string> | string[]>();
   private studyRequest = 0;
   private nextPlanId = 0;
   private toastTimer: number | null = null;
@@ -143,15 +152,18 @@ export class Store {
     this.currentConceptId = null;
     this.view = { name: "today" };
     this.clock = Date.now();
-    this.askedBulk = [];
-    this.approvedBulk = new Set();
-    this.declinedBulk = new Set();
-    this.picked = new Set();
+    this.askedBulk.length = 0;
+    this.approvedBulk.clear();
+    this.declinedBulk.clear();
+    this.picked.clear();
+    // A renamed note stays picked, approved, declined or failed.
+    for (const keys of [this.picked, this.approvedBulk, this.declinedBulk, this.failedReads, this.askedBulk])
+      this.tracked.add(keys);
     setBackend(backend);
     this.settings = settings;
     this.saveSettings = saveSettings;
     const unsubscribe = backend.subscribe(() => this.onLibraryChange());
-    const unfollow = backend.onRename((from, to) => this.onRename(from, to));
+    const unfollow = backend.onRename((from, to) => this.remapTracked(from, to));
     this.unsubscribe = () => {
       unsubscribe();
       unfollow();
@@ -345,10 +357,8 @@ export class Store {
     });
   }
 
-  /** A renamed note is still the same note: it stays picked, approved, declined or failed. */
-  private onRename(from: string, to: string) {
-    for (const keys of [this.picked, this.approvedBulk, this.declinedBulk, this.failedReads]) remapKeys(keys, from, to);
-    this.askedBulk = this.askedBulk.map((key) => remapPath(key, from, to));
+  private remapTracked(from: string, to: string) {
+    for (const keys of this.tracked) remapKeys(keys, from, to);
   }
 
   /**
@@ -357,8 +367,8 @@ export class Store {
    */
   private follow(keys: string[]) {
     const live = [...keys];
-    const stop = api.onRename((from, to) => live.forEach((key, i) => (live[i] = remapPath(key, from, to))));
-    return { keys: live, stop };
+    this.tracked.add(live);
+    return { keys: live, stop: () => this.tracked.delete(live) };
   }
 
   /**
@@ -411,20 +421,19 @@ export class Store {
         this.confirmCount = null;
         return all.map((n) => n.key);
       }
-      this.askedBulk = edited.map((n) => n.key);
+      this.askedBulk.splice(0, this.askedBulk.length, ...edited.map((n) => n.key));
       this.confirmCount = edited.length;
       return all.filter((n) => approved(n.key)).map((n) => n.key);
     };
-    let queue = next();
+    const queue = next();
     if (!queue.length) return;
     // A note renamed while it waits is read under its new name.
-    const unfollow = api.onRename((from, to) => {
-      queue = queue.map((key) => remapPath(key, from, to));
-      remapKeys(read, from, to);
-    });
+    this.tracked.add(queue);
+    this.tracked.add(read);
     try {
       this.indexError = null;
       let done = 0;
+      let failed = false;
       let total = queue.length;
       this.say("curious", `Reading ${total} note${total > 1 ? "s" : ""}…`);
       while (queue.length) {
@@ -443,23 +452,25 @@ export class Store {
             if (!snap.notes.find((n) => n.key === key)?.stale) this.readDone(key);
           } catch (e) {
             if (!this.active(generation)) return;
+            // One note that keeps failing must not stop the ones after it; it's already in `read`,
+            // so it isn't retried in this pass. Only tell you the first time, not on every pass.
+            if (!this.failedReads.has(key)) new Notice(`Claude Tutor: ${errText(e)}`);
             this.failedReads.add(key);
             this.indexError = errText(e);
-            new Notice(`Claude Tutor: ${this.indexError}`);
-            this.indexing = null;
-            this.say("confused", "I got stuck reading one of your notes.");
-            return;
+            failed = true;
           }
           done++;
         }
         // Other notes edited while we were reading get picked up too.
-        queue = next();
+        queue.splice(0, queue.length, ...next());
         total = done + queue.length;
       }
       this.indexing = null;
-      this.say("proud", `All read! I know ${this.concepts.length} concepts from your notes.`);
+      if (failed) this.say("confused", "I got stuck reading one of your notes.");
+      else this.say("proud", `All read! I know ${this.concepts.length} concepts from your notes.`);
     } finally {
-      unfollow();
+      this.tracked.delete(queue);
+      this.tracked.delete(read);
     }
   }
 
@@ -639,7 +650,7 @@ export class Store {
       this.startQuiz(
         `Quiz: ${title}`,
         concepts.map((c) => c.id),
-        this.settings().quizQuestions || 5,
+        this.quizLength,
       );
     else {
       const next = concepts.find((c) => isDue(c)) ?? [...concepts].sort((a, b) => a.mastery - b.mastery)[0];
@@ -765,9 +776,14 @@ export class Store {
     );
   }
 
+  /** How many questions a quiz asks, from settings. */
+  private get quizLength() {
+    return this.settings().quizQuestions || 5;
+  }
+
   quickQuiz() {
     const due = this.dueConcepts().map((c) => c.id);
-    this.startQuiz("Quick quiz", due.length >= 3 ? due : this.concepts.map((c) => c.id), 5);
+    this.startQuiz("Quick quiz", due.length >= 3 ? due : this.concepts.map((c) => c.id), this.quizLength);
   }
 
   mistakesQuiz() {
@@ -779,7 +795,7 @@ export class Store {
     this.startQuiz(
       `Quiz: ${this.note(key)?.title ?? "note"}`,
       this.concepts.filter((c) => c.note_path === key).map((c) => c.id),
-      5,
+      this.quizLength,
     );
   }
 
