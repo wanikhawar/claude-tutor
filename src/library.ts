@@ -20,6 +20,8 @@ export class Library {
   private disposed = false;
   private scan = 0;
   private loads = new Map<string, { token: symbol; task: Promise<string[]> }>();
+  /** Cache reads, writes and cleanup for one PDF run one at a time, so a cleanup can't delete an entry mid-read. */
+  private cacheLocks = new Map<string, Promise<unknown>>();
   /** A PDF was read into these parts, which may not be the page ranges it had before. */
   onPdfParts?: (path: string, parts: Note[]) => void;
 
@@ -205,17 +207,31 @@ export class Library {
     });
   }
 
+  private withCacheLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const run = (this.cacheLocks.get(key) ?? Promise.resolve()).then(fn, fn);
+    const tail = run.catch(() => {});
+    this.cacheLocks.set(key, tail);
+    void tail.then(() => {
+      if (this.cacheLocks.get(key) === tail) this.cacheLocks.delete(key);
+    });
+    return run;
+  }
+
   /** Page texts, cached by path + size + modification time. Older versions of the same file are removed. */
   private async pdfPages(file: TFile, current: () => boolean): Promise<string[]> {
     const adapter = this.app.vault.adapter;
     const prefix = pathHash(file.path);
     const version = sha256(`${file.path}|${file.stat.size}|${file.stat.mtime}`).slice(0, 16);
     const cacheFile = normalizePath(`${this.cacheDir}/${prefix}-${version}.json`);
-    try {
-      if (await adapter.exists(cacheFile)) return JSON.parse(await adapter.read(cacheFile)) as string[];
-    } catch {
-      // Unreadable cache entry: extract again.
-    }
+    const cached = await this.withCacheLock(prefix, async () => {
+      try {
+        if (await adapter.exists(cacheFile)) return JSON.parse(await adapter.read(cacheFile)) as string[];
+      } catch {
+        // Unreadable cache entry: extract again.
+      }
+      return null;
+    });
+    if (cached) return cached;
 
     let pages: string[] | null = null;
     if (adapter instanceof FileSystemAdapter) {
@@ -233,19 +249,23 @@ export class Library {
 
     // A superseded read must not write or clean up: it could delete the entry a newer read just wrote.
     if (!current()) return pages;
-    try {
-      if (!(await adapter.exists(this.cacheDir))) await adapter.mkdir(this.cacheDir);
-      await adapter.write(cacheFile, JSON.stringify(pages));
-      // An edit or rename leaves the old text behind; keep only the newest entry for this file.
-      for (const entry of (await adapter.list(this.cacheDir)).files) {
-        const name = entry.split("/").pop() ?? "";
-        if (!current()) break;
-        if (name.startsWith(`${prefix}-`) && normalizePath(entry) !== cacheFile)
-          await adapter.remove(entry).catch(() => {});
+    await this.withCacheLock(prefix, async () => {
+      // Re-check inside the lock: a newer read may have started while this one waited.
+      if (!current()) return;
+      try {
+        if (!(await adapter.exists(this.cacheDir))) await adapter.mkdir(this.cacheDir);
+        await adapter.write(cacheFile, JSON.stringify(pages));
+        // An edit or rename leaves the old text behind; keep only the newest entry for this file.
+        for (const entry of (await adapter.list(this.cacheDir)).files) {
+          const name = entry.split("/").pop() ?? "";
+          if (!current()) break;
+          if (name.startsWith(`${prefix}-`) && normalizePath(entry) !== cacheFile)
+            await adapter.remove(entry).catch(() => {});
+        }
+      } catch {
+        // Caching is best-effort.
       }
-    } catch {
-      // Caching is best-effort.
-    }
+    });
     return pages;
   }
 }
