@@ -91,6 +91,22 @@ describe("vault read ordering", () => {
     expect(cached).toHaveLength(1);
     expect(cached[0]).toMatch(/^cache\/[0-9a-f]{16}-[0-9a-f]{16}\.json$/);
   });
+
+  it("does not prune cache entries once a newer scan has started", async () => {
+    const f = fixture([]);
+    f.settings.includePdfs = true;
+    const orphan = "cache/ffffffffffffffff-aaaaaaaaaaaaaaaa.json";
+    f.disk.set(orphan, "[]");
+    const listing = deferred<{ files: string[]; folders: string[] }>();
+    f.vault.adapter.list.mockReturnValueOnce(listing.promise);
+    const older = f.library.loadAll();
+    await Promise.resolve();
+    await f.library.loadAll();
+    f.disk.set(orphan, "[]");
+    listing.resolve({ files: [orphan], folders: [] });
+    await older;
+    expect(f.disk.has(orphan)).toBe(true);
+  });
 });
 
 describe("PDF parts", () => {

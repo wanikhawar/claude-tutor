@@ -94,7 +94,10 @@ export class Library {
         if (stale()) return;
         const name = entry.split("/").pop() ?? "";
         if (keep.has(name.split("-")[0]) && name.includes("-")) continue;
-        await adapter.remove(entry).catch(() => {});
+        // Same lock as `pdfPages`, so a newer scan's read of this PDF waits for the removal instead of racing it.
+        await this.withCacheLock(name.split("-")[0], async () => {
+          if (!stale()) await adapter.remove(entry).catch(() => {});
+        });
       }
     } catch {
       // Pruning is best-effort.
