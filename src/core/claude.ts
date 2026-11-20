@@ -5,8 +5,8 @@
 // a schema. MCP servers, skills and user settings are disabled so per-call overhead
 // stays around 1k tokens. Running the process itself is shared with Codex (./cli).
 
-import { findBinary, jsonLines, runCli, str, type ModelList, type RequestOptions } from "./cli";
-import type { ImageInput } from "./types";
+import { findBinary, jsonLines, runCli, type ModelList, type RequestOptions } from "./cli";
+import { str, type ImageInput } from "./types";
 
 export function findClaude(configured: string): string {
   return findBinary(configured, "claude", [".claude/local"]);

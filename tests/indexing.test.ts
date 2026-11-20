@@ -205,7 +205,7 @@ describe("requested note reads", () => {
     expect(f.settings.autoIndex).toBe(false);
   });
 
-  it("retains the failed note when retry fails again, and resumes the remaining bulk queue on success", async () => {
+  it("keeps reading the rest of the queue after a note fails, and retries the failed ones later", async () => {
     await setup();
     const extract = vi
       .spyOn(tutor, "extractConcepts")
@@ -213,12 +213,25 @@ describe("requested note reads", () => {
       .mockRejectedValueOnce(new Error("Second failure"))
       .mockResolvedValue({ concepts: [extracted()] });
     await state.readSelected(["a.md", "b.md"]);
-    await state.retryIndexing();
+    // a.md failing did not stop b.md from being tried in the same pass.
+    expect(extract.mock.calls.map(([, title]) => title)).toEqual(["a.md", "b.md"]);
     expect(state.indexError).toBe("Second failure");
     await state.retryIndexing();
     expect(state.notes.every((n) => !n.stale)).toBe(true);
-    expect(extract.mock.calls.map(([, title]) => title)).toEqual(["a.md", "a.md", "a.md", "b.md"]);
+    expect(extract.mock.calls.map(([, title]) => title)).toEqual(["a.md", "b.md", "a.md", "b.md"]);
     expect(state.indexError).toBeNull();
+  });
+
+  it("reads the notes after a failing one, which is retried but not in the same pass", async () => {
+    await setup(["a.md", "b.md", "c.md"]);
+    const extract = vi.spyOn(tutor, "extractConcepts").mockImplementation(async (_c, title) => {
+      if (title === "a.md") throw new Error("Always fails");
+      return { concepts: [extracted()] };
+    });
+    await state.readSelected(["a.md", "b.md", "c.md"]);
+    expect(extract.mock.calls.map(([, title]) => title)).toEqual(["a.md", "b.md", "c.md"]);
+    expect(state.notes.filter((n) => n.stale).map((n) => n.key)).toEqual(["a.md"]);
+    expect(state.indexError).toBe("Always fails");
   });
 });
 

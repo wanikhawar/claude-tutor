@@ -114,7 +114,7 @@ describe("rendering replies", () => {
       "<p>first</p>",
       `<p>late <img src="${EVIL}" alt="late"></p><iframe src="${EVIL}"></iframe>`,
     );
-    await new Promise((r) => setTimeout(r, 10));
+    await new Promise((r) => setTimeout(r, 50));
     expect(view.textContent).toBe("firstlate late");
     expect(view.innerHTML).not.toContain("<img");
     expect(view.innerHTML).not.toContain("iframe");
@@ -129,7 +129,8 @@ describe("rendering replies", () => {
     original.querySelector(".slot")!.innerHTML = `<img alt="late" src="${EVIL}"><iframe src="${EVIL}"></iframe>`;
     original.querySelector(".local")!.setAttribute("src", EVIL);
     original.querySelector("p")!.setAttribute("style", `background: url(${EVIL})`);
-    await Promise.resolve();
+    // The copy is refreshed once per frame, not once per change.
+    await new Promise((r) => setTimeout(r, 50));
     expect(view.querySelectorAll("img, iframe")).toHaveLength(0);
     expect([...view.querySelectorAll("a")].map((a) => a.textContent)).toEqual(["late", "image"]);
     expect(view.querySelector("p")!.hasAttribute("style")).toBe(false);

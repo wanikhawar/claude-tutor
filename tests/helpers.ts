@@ -64,7 +64,7 @@ export function pdf(f: ReturnType<typeof fixture>, path: string, pages: string[]
   });
   f.files.push(pdf);
   const text = pages.map((p) => `${p} ${"filler ".repeat(filler)}`);
-  f.disk.set(`cache/${sha256(`${path}|1|1`).slice(0, 32)}.json`, JSON.stringify(text));
+  f.disk.set(`cache/${sha256(path).slice(0, 16)}-${sha256(`${path}|1|1`).slice(0, 16)}.json`, JSON.stringify(text));
   return pdf;
 }
 export function folder(path: string): TFolder {
@@ -97,6 +97,10 @@ export function fixture(paths = ["a.md", "b.md"]) {
     remove: vi.fn(async (path: string) => {
       disk.delete(path);
     }),
+    list: vi.fn(async (dir: string) => ({
+      files: [...disk.keys()].filter((p) => p.startsWith(`${dir}/`)),
+      folders: [] as string[],
+    })),
   };
   const vault = {
     adapter,

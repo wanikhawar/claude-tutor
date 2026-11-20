@@ -8,6 +8,10 @@ import type { Note, Skipped } from "./core/types";
 import type { TutorSettings } from "./settings";
 
 const byPath = new Intl.Collator(undefined, { sensitivity: "base" });
+/** How many files a scan reads at once. */
+const LOAD_WORKERS = 8;
+/** Cached PDF text is named `<pathHash>-<versionHash>.json`, so one file's old versions can be found. */
+const pathHash = (path: string) => sha256(path).slice(0, 16);
 
 export class Library {
   /** Notes by key (a Markdown file, or one page-range part of a PDF). */
@@ -16,6 +20,8 @@ export class Library {
   private disposed = false;
   private scan = 0;
   private loads = new Map<string, { token: symbol; task: Promise<string[]> }>();
+  /** Cache reads, writes and cleanup for one PDF run one at a time, so a cleanup can't delete an entry mid-read. */
+  private cacheLocks = new Map<string, Promise<unknown>>();
   /** A PDF was read into these parts, which may not be the page ranges it had before. */
   onPdfParts?: (path: string, parts: Note[]) => void;
 
@@ -60,9 +66,41 @@ export class Library {
     const inScope = new Set(files.map((f) => f.path));
     for (const [k, n] of this.notes) if (!inScope.has(n.path)) this.notes.delete(k);
     for (const p of this.skipped.keys()) if (!inScope.has(p)) this.skipped.delete(p);
-    for (const f of files) {
-      if (this.disposed || this.scan !== scan) return;
-      await this.loadFile(f);
+    // A few files at a time: reading one by one is slow on a big vault. A newer scan or dispose stops the workers.
+    let next = 0;
+    const worker = async () => {
+      while (next < files.length) {
+        if (this.disposed || this.scan !== scan) return;
+        await this.loadFile(files[next++]);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(LOAD_WORKERS, files.length) }, worker));
+    if (this.disposed || this.scan !== scan) return;
+    await this.pruneCache(
+      files.filter((f) => f.path.toLowerCase().endsWith(".pdf")),
+      scan,
+    );
+  }
+
+  /** Drop cached PDF text for files no longer in scope, and old-format entries. Best-effort. */
+  private async pruneCache(pdfs: TFile[], scan: number) {
+    const stale = () => this.disposed || this.scan !== scan;
+    try {
+      const adapter = this.app.vault.adapter;
+      const keep = new Set(pdfs.map((f) => pathHash(f.path)));
+      const entries = (await adapter.list(this.cacheDir)).files;
+      for (const entry of entries) {
+        // A newer scan may have put more PDFs in scope while we waited; its entries must stay.
+        if (stale()) return;
+        const name = entry.split("/").pop() ?? "";
+        if (keep.has(name.split("-")[0]) && name.includes("-")) continue;
+        // Same lock as `pdfPages`, so a newer scan's read of this PDF waits for the removal instead of racing it.
+        await this.withCacheLock(name.split("-")[0], async () => {
+          if (!stale()) await adapter.remove(entry).catch(() => {});
+        });
+      }
+    } catch {
+      // Pruning is best-effort.
     }
   }
 
@@ -99,7 +137,8 @@ export class Library {
       this.inScope(path) &&
       this.app.vault.getAbstractFileByPath(path) === file;
     try {
-      const notes = file.extension.toLowerCase() === "pdf" ? await this.readPdf(file) : [await this.readMarkdown(file)];
+      const notes =
+        file.extension.toLowerCase() === "pdf" ? await this.readPdf(file, current) : [await this.readMarkdown(file)];
       if (!current()) return [];
       const kept = notes.filter((n) => n.body.trim());
       this.dropLoaded(path);
@@ -151,8 +190,8 @@ export class Library {
     };
   }
 
-  private async readPdf(file: TFile): Promise<Note[]> {
-    const pages = await this.pdfPages(file);
+  private async readPdf(file: TFile, current: () => boolean): Promise<Note[]> {
+    const pages = await this.pdfPages(file, current);
     const parts = split(pages);
     const multi = parts.length > 1;
     return parts.map((p) => {
@@ -171,16 +210,31 @@ export class Library {
     });
   }
 
-  /** Page texts, cached by path + size + modification time. */
-  private async pdfPages(file: TFile): Promise<string[]> {
+  private withCacheLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const run = (this.cacheLocks.get(key) ?? Promise.resolve()).then(fn, fn);
+    const tail = run.catch(() => {});
+    this.cacheLocks.set(key, tail);
+    void tail.then(() => {
+      if (this.cacheLocks.get(key) === tail) this.cacheLocks.delete(key);
+    });
+    return run;
+  }
+
+  /** Page texts, cached by path + size + modification time. Older versions of the same file are removed. */
+  private async pdfPages(file: TFile, current: () => boolean): Promise<string[]> {
     const adapter = this.app.vault.adapter;
-    const id = sha256(`${file.path}|${file.stat.size}|${file.stat.mtime}`).slice(0, 32);
-    const cacheFile = normalizePath(`${this.cacheDir}/${id}.json`);
-    try {
-      if (await adapter.exists(cacheFile)) return JSON.parse(await adapter.read(cacheFile)) as string[];
-    } catch {
-      // Unreadable cache entry: extract again.
-    }
+    const prefix = pathHash(file.path);
+    const version = sha256(`${file.path}|${file.stat.size}|${file.stat.mtime}`).slice(0, 16);
+    const cacheFile = normalizePath(`${this.cacheDir}/${prefix}-${version}.json`);
+    const cached = await this.withCacheLock(prefix, async () => {
+      try {
+        if (await adapter.exists(cacheFile)) return JSON.parse(await adapter.read(cacheFile)) as string[];
+      } catch {
+        // Unreadable cache entry: extract again.
+      }
+      return null;
+    });
+    if (cached) return cached;
 
     let pages: string[] | null = null;
     if (adapter instanceof FileSystemAdapter) {
@@ -196,12 +250,25 @@ export class Library {
     }
     checkTextLayer(pages);
 
-    try {
-      if (!(await adapter.exists(this.cacheDir))) await adapter.mkdir(this.cacheDir);
-      await adapter.write(cacheFile, JSON.stringify(pages));
-    } catch {
-      // Caching is best-effort.
-    }
+    // A superseded read must not write or clean up: it could delete the entry a newer read just wrote.
+    if (!current()) return pages;
+    await this.withCacheLock(prefix, async () => {
+      // Re-check inside the lock: a newer read may have started while this one waited.
+      if (!current()) return;
+      try {
+        if (!(await adapter.exists(this.cacheDir))) await adapter.mkdir(this.cacheDir);
+        await adapter.write(cacheFile, JSON.stringify(pages));
+        // An edit or rename leaves the old text behind; keep only the newest entry for this file.
+        for (const entry of (await adapter.list(this.cacheDir)).files) {
+          const name = entry.split("/").pop() ?? "";
+          if (!current()) break;
+          if (name.startsWith(`${prefix}-`) && normalizePath(entry) !== cacheFile)
+            await adapter.remove(entry).catch(() => {});
+        }
+      } catch {
+        // Caching is best-effort.
+      }
+    });
     return pages;
   }
 }
