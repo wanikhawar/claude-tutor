@@ -15,8 +15,8 @@
     "@types/node": "26.6.6",
     "esbuild": "0.28.2",
     "esbuild-svelte": "0.9.5",
-    "eslint": "10.14.0",
-    "eslint-plugin-obsidianmd": "0.4.2",
+    "eslint": "10.15.0",
+    "eslint-plugin-obsidianmd": "0.6.0",
     "eslint-plugin-svelte": "3.23.1",
     "happy-dom": "21.0.4",
     "obsidian": "1.14.4",
@@ -26,7 +26,7 @@
     "svelte-check": "4.7.8",
     "svelte-eslint-parser": "1.10.0",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.72.1",
+    "typescript-eslint": "8.73.0",
     "vitest": "5.0.5"
   },
   "overrides": {
