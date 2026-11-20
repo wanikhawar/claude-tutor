@@ -379,6 +379,8 @@ export class TutorSettingTab extends PluginSettingTab {
               setting.setDesc(s.studyFiles.join(", ")).addButton((b) =>
                 b.setButtonText("Clear").onClick(async () => {
                   s.studyFiles = [];
+                  // Cleared additions must not come back from the exclusion baseline.
+                  if (this.exclusionBaseline) this.exclusionBaseline.files = [];
                   await save(true);
                   // Re-checks `visible`, which hides this row now the list is empty.
                   this.refreshDomState();

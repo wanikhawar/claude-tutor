@@ -74,15 +74,22 @@ export class Library {
     };
     await Promise.all(Array.from({ length: Math.min(LOAD_WORKERS, files.length) }, worker));
     if (this.disposed || this.scan !== scan) return;
-    await this.pruneCache(files.filter((f) => f.path.toLowerCase().endsWith(".pdf")));
+    await this.pruneCache(
+      files.filter((f) => f.path.toLowerCase().endsWith(".pdf")),
+      scan,
+    );
   }
 
   /** Drop cached PDF text for files no longer in scope, and old-format entries. Best-effort. */
-  private async pruneCache(pdfs: TFile[]) {
+  private async pruneCache(pdfs: TFile[], scan: number) {
+    const stale = () => this.disposed || this.scan !== scan;
     try {
       const adapter = this.app.vault.adapter;
       const keep = new Set(pdfs.map((f) => pathHash(f.path)));
-      for (const entry of (await adapter.list(this.cacheDir)).files) {
+      const entries = (await adapter.list(this.cacheDir)).files;
+      for (const entry of entries) {
+        // A newer scan may have put more PDFs in scope while we waited; its entries must stay.
+        if (stale()) return;
         const name = entry.split("/").pop() ?? "";
         if (keep.has(name.split("-")[0]) && name.includes("-")) continue;
         await adapter.remove(entry).catch(() => {});
@@ -125,7 +132,8 @@ export class Library {
       this.inScope(path) &&
       this.app.vault.getAbstractFileByPath(path) === file;
     try {
-      const notes = file.extension.toLowerCase() === "pdf" ? await this.readPdf(file) : [await this.readMarkdown(file)];
+      const notes =
+        file.extension.toLowerCase() === "pdf" ? await this.readPdf(file, current) : [await this.readMarkdown(file)];
       if (!current()) return [];
       const kept = notes.filter((n) => n.body.trim());
       this.dropLoaded(path);
@@ -177,8 +185,8 @@ export class Library {
     };
   }
 
-  private async readPdf(file: TFile): Promise<Note[]> {
-    const pages = await this.pdfPages(file);
+  private async readPdf(file: TFile, current: () => boolean): Promise<Note[]> {
+    const pages = await this.pdfPages(file, current);
     const parts = split(pages);
     const multi = parts.length > 1;
     return parts.map((p) => {
@@ -198,7 +206,7 @@ export class Library {
   }
 
   /** Page texts, cached by path + size + modification time. Older versions of the same file are removed. */
-  private async pdfPages(file: TFile): Promise<string[]> {
+  private async pdfPages(file: TFile, current: () => boolean): Promise<string[]> {
     const adapter = this.app.vault.adapter;
     const prefix = pathHash(file.path);
     const version = sha256(`${file.path}|${file.stat.size}|${file.stat.mtime}`).slice(0, 16);
@@ -223,12 +231,15 @@ export class Library {
     }
     checkTextLayer(pages);
 
+    // A superseded read must not write or clean up: it could delete the entry a newer read just wrote.
+    if (!current()) return pages;
     try {
       if (!(await adapter.exists(this.cacheDir))) await adapter.mkdir(this.cacheDir);
       await adapter.write(cacheFile, JSON.stringify(pages));
       // An edit or rename leaves the old text behind; keep only the newest entry for this file.
       for (const entry of (await adapter.list(this.cacheDir)).files) {
         const name = entry.split("/").pop() ?? "";
+        if (!current()) break;
         if (name.startsWith(`${prefix}-`) && normalizePath(entry) !== cacheFile)
           await adapter.remove(entry).catch(() => {});
       }

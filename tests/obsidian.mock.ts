@@ -88,11 +88,15 @@ export function debounce(fn: () => void, delay: number) {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const run = () => {
     clearTimeout(timer);
-    timer = setTimeout(fn, delay);
+    timer = setTimeout(() => {
+      timer = undefined;
+      fn();
+    }, delay);
     return run;
   };
   run.cancel = () => {
     clearTimeout(timer);
+    timer = undefined;
     return run;
   };
   run.run = () => {
